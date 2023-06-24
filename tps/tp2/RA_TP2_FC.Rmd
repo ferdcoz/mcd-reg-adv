@@ -570,7 +570,7 @@ Definiendo como la variable predictora Overall y como variable respuesta Valor, 
 ### Dataset
 
 ```{r}
-datos_fifa <- read_csv("datasets/datos_fifa.csv")
+datos_fifa <- read_csv("https://raw.githubusercontent.com/ferdcoz/mcd-reg-adv/main/datasets/datos_fifa.csv")
 ```
 
 ### a) Visualizar la relación entre ambas variables.
@@ -629,16 +629,11 @@ modelo$results$RMSE
 ```
 
 ```{r}
-
-# Definir las variables predictoras y de respuesta
-predictora <- datos_fifa$Overall
-respuesta <- datos_fifa$Valor
-
 # Obtener el tamaño del conjunto de entrenamiento (80%)
 tam_entrenamiento <- round(0.8 * length(predictora))
 
 # Generar índices aleatorios para dividir los datos en entrenamiento y validación
-set.seed(123)  # Para reproducibilidad de resultados
+set.seed(123)
 indices <- sample(1:length(predictora))
 
 # Separar los datos en conjunto de entrenamiento y conjunto de validación
@@ -653,7 +648,7 @@ modelo <- lm(respuesta_entrenamiento ~ predictora_entrenamiento)
 # Predecir los valores de respuesta en el conjunto de validación
 prediccion <- predict(modelo, newdata = data.frame(predictora_entrenamiento = predictora_validacion))
 
-# Calcular el RMSE para el modelo lineal simple
+# RMSE
 rmse <- sqrt(mean((respuesta_validacion - prediccion)^2))
 rmse
 
