@@ -20,9 +20,50 @@ gc( full = TRUE )
 ## Librerias
 
 ```{r}
-require(ggpmisc)
-require(readxl)
-require(MVN)
+suppressMessages( library(ggpmisc) )
+suppressMessages( library(readxl) )
+suppressMessages( library(MVN) )
+```
+
+## Funciones
+
+```{r}
+
+test_supuestos <- function( my_model, nivel_significancia = 0.05 ) {
+  
+suppressMessages( require(lmtest) )
+suppressMessages( require(car) )
+  
+  #Shapiro Test
+  t_sha <- shapiro.test( my_model$residuals )
+  t_sha_obs <- ifelse( t_sha$p.value > nivel_significancia,
+                       "Los residuos son normales.",
+                       "Los residuos NO son normales.")
+  
+  #BP Test
+  t_bp <- bptest( my_model )
+  t_bp_obs <- ifelse( unname(t_bp$p.value) > nivel_significancia,
+                     "Homocedasticidad. La varianza de los residuos es constante.",
+                     "Heterocedasticidad. La varianza de los residuos NO es constante.")
+  
+  #Durbin-Watson Test
+  #ifelse( t_dwt$dw > 1.5 && t_dwt$dw < 2.5,
+  t_dwt <- durbinWatsonTest( my_model )
+  t_dwt_obs <- ifelse( t_dwt$p > nivel_significancia,
+                      "No hay autocorrelación. Los residuos son independientes.",
+                      "Hay autocorrelación. Los residuos NO son independientes.")
+  
+  resultados <- data.frame(
+    Prueba = c("Shapiro", "Breusch-Pagan", "Durbin-Watson"),
+    P_Value = c(t_sha$p.value, unname(t_bp$p.value), t_dwt$p)
+  )
+  
+  resultados$H0 <- ifelse( resultados$P_Value > nivel_significancia, "No rechazada", "Rechazada" )
+  resultados$Observaciones <- ifelse( resultados$Prueba == "Shapiro", t_sha_obs,
+                                     ifelse( resultados$Prueba == "Breusch-Pagan", t_bp_obs, t_dwt_obs ) )
+
+return(resultados)
+}
 ```
 
 ## Resolución
@@ -44,20 +85,12 @@ u_EGD <- mean(g_cerdos$EGD)
 ```
 
 ```{r}
-#Ejemplo de otras lineas verticales u horizontales
-ggplot( data = g_cerdos, aes( x = PV, y = EGD ) ) +
-  geom_point( colour = "red4", size = 2) +
-  #geom_vhlines( xintercept = u_PV, yintercept = u_EGD, linetype = "dashed")
-  geom_vhlines( xintercept = c(40,80), yintercept = c(20,30), linetype = "dashed") 
-```
-
-```{r}
 ggplot( data = g_cerdos, aes( x = PV, y = EGD ) ) +
   geom_point( colour = "red4", size = 2) +
   ggtitle( "Peso Vivo (Kg) vs Espesor Grasa Dorsal (mm)" ) +
   theme_bw() + 
   theme( plot.title = element_text( hjust = 0.5 ) ) +
-  geom_quadrant_lines(xintercept = u_PV , yintercept = u_EGD )
+  geom_vhlines( xintercept = u_PV, yintercept = u_EGD, linetype = "dashed")
   
 ```
 
@@ -266,6 +299,10 @@ icm_lm <- lm(colest ~ edad, data = icm)
 summary(icm_lm)
 ```
 
+```{r}
+overall_p( icm_lm )
+```
+
 ### c) Intervalos de confianza
 
 ```{r}
@@ -316,7 +353,7 @@ ggplot(data = icm_2,
        mapping = aes(x = edad, y = colest)) + 
   geom_point(color = "firebrick", size = 2) + 
   labs( title = "Colesterol en función de la edad" ) + 
-    geom_point(data = nuevos_datos, 
+  geom_point(data = nuevos_datos, 
              aes(y = predicciones), 
              color = "blue", size = 2) +
   geom_smooth(method = "lm", 
@@ -324,7 +361,7 @@ ggplot(data = icm_2,
               level=0.95, 
               color = "black") + 
   theme_bw() + 
-  theme(plot.title = element_text(hjust = 0.5))
+  theme( plot.title = element_text(hjust = 0.5) )
 
 ```
 
@@ -403,7 +440,57 @@ ggplot( data = energia, aes( x = Hora, y = Energía ) ) +
   geom_quadrant_lines(xintercept = mean(energia$Hora) , yintercept = mean(energia$Energía) )
 ```
 
-### b)
+### b) **Esimar un modelo lineal y verificar la normalidad de los residuos del mismo**
+
+```{r}
+modenerg1 <- lm( Energía ~ Hora, data = energia )
+summary( modenerg1 )
+```
+
+```{r}
+
+overall_p <- function( my_model, nivel_significancia = 0.05 ) {
+  
+suppressMessages( require(lmtest) )
+suppressMessages( require(car) )
+  
+  #Shapiro Test
+  t_sha <- shapiro.test( my_model$residuals )
+  t_sha_obs <- ifelse( t_sha$p.value > nivel_significancia,
+                       "Los residuos son normales.",
+                       "Los residuos NO son normales.")
+  
+  #BP Test
+  t_bp <- bptest( my_model )
+  t_bp_obs <- ifelse( unname(t_bp$p.value) > nivel_significancia,
+                     "Homocedasticidad. La varianza de los residuos es constante.",
+                     "Heterocedasticidad. La varianza de los residuos NO es constante.")
+  
+  #Durbin-Watson Test
+  t_dwt <- dwt( my_model )
+  t_dwt_obs <- ifelse( t_dwt$dw > 1.5 && t_dwt$dw < 2.5,
+                      "No hay autocorrelación. Los residuos son independientes.",
+                      "Hay autocorrelación. Los residuos NO son independientes.")
+  
+  resultados <- data.frame(
+    Prueba = c("Shapiro", "Breusch-Pagan", "Durbin-Watson"),
+    P_Value = c(t_sha$p.value, unname(t_bp$p.value), t_dwt$p)
+  )
+  
+  resultados$Hipotesis <- ifelse( resultados$P_Value > nivel_significancia, "Aceptada", "Rechazada" )
+  resultados$Observaciones <- ifelse( resultados$Prueba == "Shapiro", t_sha_obs,
+                                     ifelse( resultados$Prueba == "Breusch-Pagan", t_bp_obs, t_dwt_obs ) )
+
+  return(resultados)
+}
+
+overall_p(modenerg1)
+```
+
+```{r}
+r <- dwt(modenerg1)
+r$dw
+```
 
 ### c)
 
@@ -437,7 +524,20 @@ estudio <- read.csv2("./datasets/estudio.csv", dec = ".")
 
 ### a)
 
+```{r}
+mod_hs_est <- lm ( puntaje ~ horas_estudio, data = estudio )
+summary( mod_hs_est )
+```
+
 ### b)
+
+```{r}
+test_supuestos( mod_hs_est )
+```
+
+```{r}
+durbinWatsonTest( mod_hs_est )
+```
 
 ### c)
 
