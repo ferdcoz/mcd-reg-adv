@@ -26,6 +26,12 @@ suppressMessages( library(ggpubr) )
 suppressMessages( library(carData) )
 suppressMessages( library(caret) )
 suppressMessages( library(Brq) )
+suppressMessages( library(tidyverse) )
+suppressMessages( library(nortest) )
+suppressMessages( library(car) )
+suppressMessages( library(MASS) )
+suppressMessages( library(robustbase) )
+suppressMessages( library(quantreg) )
 ```
 
 ## Funciones
@@ -66,8 +72,6 @@ suppressMessages( require(car) )
   return(resultados)
 }
 ```
-
-## Resolución
 
 ## Ejercicio 2.1
 
@@ -294,6 +298,14 @@ corrplot(cor(publicidad))
 ```
 
 ### c) Ajustar los modelos de a pares y quedarse con el que mejor explique la variable respuesta utilizando el criterio de AIC, R2 y Cp_Mallows.
+
+```{r}
+library( olsrr )
+#ols_step_all_possible
+#Probar para hacer de a pares
+ols_step_all_possible(model.multi)
+#ols_step_forward()
+```
 
 ```{r}
 # Ajuste de modelos de a pares
@@ -599,17 +611,19 @@ respuesta <- datos_fifa$Valor
 
 grados <- 1:10
 
-rsquared_list <- vector("list", length(grados))
+resultados <- data.frame(Grados = grados)
 
 for (i in grados) {
 
   formula <- as.formula(paste("respuesta ~ poly(predictora, ", i, ", raw = TRUE)"))
-  modelo <- lm(formula, data = datos_fifa) 
-  rsquared_list[[i]] <- summary(modelo)$r.square
+  modelo <- lm(formula, data = datos_fifa)
+  resultados[i, "AIC"] <- AIC(modelo)
+  resultados[i, "BIC"] <- BIC(modelo)
+  resultados[i, "R-squared"] <- summary(modelo)$r.squared
+  resultados[i, "Adjusted R-squared"] <- summary(modelo)$adj.r.squared
 }
 
-rsquared_list
-which.max(rsquared_list)
+resultados
 ```
 
 ### d) Definir la métrica RMSE y evalauar sobre un conjunto de validación los modelos ajustados.
@@ -675,31 +689,151 @@ crimen <- read.csv("datasets/crime.csv", sep = ';')
 ```{r}
 # Ajustar un modelo de regresión OLS
 model.crime <- lm(crime ~. -state -sid, data = crimen)
-
-par( mfrow = c(2,2) )
-plot( model.crime )
 ```
 
-### b)
+#### Analíticamente
 
-### c)
+```{r}
+res_stu_1<-rstudent(model.crime)
+res_stu_1[abs(res_stu_1)>3]
+```
 
-### d)
+```{r}
+summary(influence.measures(model = model.crime))
+```
 
-### e)
+```{r}
+unique(which(dfbetas(model.crime)[,2]>1))
+```
+
+```{r}
+lev <- hatvalues(model.crime)
+unique(which(lev>0.2))
+```
+
+```{r}
+n<-length(crimen$sid)
+p<-length(model.crime$coefficients)
+unique(which(dffits(model.crime)>2 * sqrt(p / n)))
+```
+
+```{r}
+dcook<-cooks.distance(model.crime)
+influyentes <- unique(which(dcook>4/n))
+influyentes
+```
+
+```{r}
+#punto de corte
+corted<-qf(0.5,2,n-2)
+unique(which(dcook>corted))
+```
+
+#### Gráficamente
+
+```{r}
+influencePlot(model = model.crime)
+```
+
+```{r}
+influenceIndexPlot(model.crime, vars='Bonf', las=1,col='blue')
+```
+
+```{r}
+hist(lev)
+```
+
+```{r}
+# Gráfico de leverage
+plot(model.crime, which = 5)
+
+# Análisis de distancias de Cook
+influenceIndexPlot(model.crime, vars='Cook', las=1,col='blue')
+```
+
+```{r}
+hist(dcook)
+```
+
+### b) Identificar las observaciones influyentes (recordar que 4/n es un valor de corte muy utilizado para las distancias de Cook). Ajustar un modelo OLS sin esas observaciones. Comparar los coeficientes estimados en ambos modelos.
+
+```{r}
+model.crime2 <- lm(crime ~. -state -sid, data = crimen[-influyentes,])
+print(summary(model.crime))
+print(summary(model.crime2))
+```
+
+Se observa que en ambos modelos la variable 'pctmetro' y 'single' son significativas, mientras que otras como 'murder' desaparece al eliminar los valores influyentes detectados previamente.
+
+### c) Generar una nueva variable con el valor absoluto de los residuos y señalar los diez residuos más altos. Coinciden con los valores influyentes?
+
+```{r}
+var_residuos <- abs(residuals(model.crime))
+var_residuos <- order(var_residuos, decreasing = TRUE)[1:10]
+print(influyentes)
+print(var_residuos)
+```
+
+Algunos valores influyentes coinciden con los residuos
+
+### d) Ajustar un modelo de regresión robusta mediante mínimos cuadrados ponderados iterados (IRLS). El comando para ejecutar una regresión robusta está en (library MASS). Se pueden utilizar varias funciones de ponderación en IRLS uar en primera instancia los pesos de Huber.
+
+```{r}
+modelo_robusto <- rlm(crime ~. -state -sid, data = crimen, psi=psi.huber)
+summary(modelo_robusto)
+```
+
+### e) Hacerlo ahora con los pesos de la función bicuadrada ( psi = psi.bisquare).
+
+```{r}
+modelo_robusto2 <- rlm(crime ~. -state -sid, data = crimen, psi=psi.bisquare)
+summary(modelo_robusto2)
+```
 
 ## Ejercicio 2.7
+
+En la base de datos USgirl de la biblioteca Brq de R, se encuentran 500 registros correspondientes a edad y peso de mujeres de Estados Unidos. Se pide:
 
 ### Dataset
 
 ```{r}
-mujeres <- USgirl
+data("USgirl")
 ```
 
-### a)
+### a) Graficar los pesos versus las edades. Qué se puede apreciar en este diagrama de dispersión?
 
-### b)
+```{r}
+plot(USgirl$Age, USgirl$Weight, xlab = "Edad", ylab = "Peso", main = "Pesos vs Edades", col="gray")
+```
 
-### c)
+### b) Ajustar un modelo para la mediana y graficar.
 
-### d)
+```{r}
+modelo_mediana <- rq(Weight ~ Age, data = USgirl, tau = 0.5)
+plot(USgirl$Age, USgirl$Weight, xlab = "Edad", ylab = "Peso", main = "Pesos vs Edades", col="gray")
+abline(modelo_mediana, col = "red")
+```
+
+### c) Ajustar un modelo para los cuartiles y graficar.
+
+```{r}
+modelo_cuartiles <- rq(Weight ~ Age, data = USgirl, tau = c(0.25, 0.5, 0.75))
+plot(USgirl$Age, USgirl$Weight, xlab = "Edad", ylab = "Peso", main = "Pesos vs Edades", col = "gray")
+abline(modelo_cuartiles, col ="orange")
+```
+
+### d) Ajustar un modelo para los deciles y graficar.
+
+```{r}
+modelo_deciles <- rq(Weight ~ Age, data = USgirl, tau = seq(0.1, 0.9, 0.1))
+plot(USgirl$Age, USgirl$Weight, xlab = "Edad", ylab = "Peso", main = "Pesos vs Edades", col = "gray")
+abline(modelo_deciles, col ="purple")
+```
+
+```{r}
+plot(USgirl$Age, USgirl$Weight, xlab = "Edad", ylab = "Peso", main = "Pesos vs Edades", col = "gray")
+abline(modelo_mediana, col = "red")
+abline(modelo_cuartiles, col ="orange")
+abline(modelo_deciles, col ="purple")
+```
+

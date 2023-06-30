@@ -1,0 +1,191 @@
+---
+title: "RA_TP3_FC"
+author: "Fernando Coz"
+date: "2023-06-30"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Librerias
+
+```{r}
+suppressMessages( library(readxl) )
+suppressMessages( library(readr) )
+suppressMessages( library(ggplot2) )
+suppressMessages( library(dplyr) )
+suppressMessages( library(corrplot) )
+suppressMessages( library(MVN) )
+suppressMessages( library(sandwich) )
+suppressMessages( library(MASS) )
+suppressMessages( library(leaps) )
+suppressMessages( library(ggpubr) )
+suppressMessages( library(carData) )
+suppressMessages( library(caret) )
+suppressMessages( library(Brq) )
+suppressMessages( library(tidyverse) )
+suppressMessages( library(nortest) )
+suppressMessages( library(car) )
+suppressMessages( library(MASS) )
+suppressMessages( library(robustbase) )
+suppressMessages( library(quantreg) )
+suppressMessages( library(MPV) )
+suppressMessages( library(olsrr) )
+```
+
+## Ejercicio 3.1
+
+### Dataset
+```{r}
+autos <- table.b3
+```
+
+```{r}
+summary(autos)
+```
+
+
+```{r}
+#x3 tiene valores NA por lo que decido reemplazar por la mediana
+
+autos$x3 <- ifelse(is.na(autos$x3), median(autos$x3, na.rm = TRUE), autos$x3)
+
+```
+
+
+### a) Ajustar el modelo saturado (que contiene a todas las varibles dependientes).
+```{r}
+modelo.autos <- lm(y ~., data=autos)
+summary(modelo.autos)
+```
+### b) Analizar a través del VIF la presencia de multicolinealidad.
+```{r}
+analizar_vif <- function(modelo) {
+  
+  vif_values <- vif(modelo)
+  
+  categorias <- ifelse(vif_values <= 1, "Ausente",
+                       ifelse(vif_values <= 5, "Moderada",
+                              "Significativa"))
+  
+  resultado <- data.frame(Variables = names(vif_values),
+                          VIF = vif_values,
+                          Multicolinealidad = categorias,
+                          row.names = 1:length(vif_values))
+  return(resultado)
+}
+
+analizar_vif(modelo.autos)
+```
+```{r}
+corrplot( cor( autos ), method = "circle")
+```
+ 
+### c) Realizar una selección de variables foward teniendo en cuenta el criterio de Akaike.
+```{r}
+modelo_inicial <- lm(y ~ ., data = autos)
+
+modelo_forward <- ols_step_forward_aic(modelo_inicial, details = TRUE)
+modelo_forward
+```
+
+```{r}
+plot(modelo_forward)
+```
+
+### d) Escribir la expresión del modelo seleccionado. Realizar un análisis diagnóstico del mismo.
+```{r}
+modelo_forward$model
+```
+
+### e) Realizar una selección backward teniendo en cuenta el criterio de R2 ajustado. Se selecciona el mismo modelo?
+```{r}
+modelo_backward <- ols_step_backward_p(modelo_inicial, details = TRUE)
+
+modelo_backward
+```
+
+```{r}
+adjusted_r_squared <- modelo_backward$adjr
+df <- data.frame(steps = 1:length(adjusted_r_squared), adjr2 = adjusted_r_squared)
+
+ggplot(df, aes(x = steps, y = adjr2)) +
+  geom_line(size = 1, color = "blue") +
+  geom_point(size = 2, color = "blue") +
+  geom_text(aes(label = round(adjr2, 3)), vjust = 1.5) +
+  ggtitle("Adj. R-Square - Modelo Backward") +
+  labs(x = "Steps", y = "Adj. R-Square")
+```
+
+```{r}
+modelo_backward$model
+```
+No son los mismos modelo el de forward y el de backward
+
+### f) Utilizando la función ols_step_all_possible de la biblioteca olsrr creada por Hebbali (2020) obtener todas las regresiones posibles. Elegir un único modelo visualizando gráficamente los resultados y considerando los criterios BIC, AIC, CP y R2 adj .
+```{r}
+modelo_todos <- ols_step_all_possible(modelo_inicial)
+plot(modelo_todos)
+```
+
+```{r}
+modelo_todos_best <- ols_step_best_subset(modelo_inicial)
+modelo_todos_best
+```
+```{r}
+plot(modelo_todos_best)
+```
+Visualmente se puede observar que el modelo #3 es el que tiene el menor AIC y Cp y el mayor indice de R2 ajustado.
+
+```{r}
+modelo <- which.max(modelo_todos_best$adjr)
+modelo_todos_best$predictors[modelo]
+```
+Finalmente me quedo con el modelo con 3 variables que es el que incluye x5, x8 y x10
+
+## Ejercicio 3.2
+
+### Dataset
+
+### a)
+```{r}
+
+```
+
+## Ejercicio 3.3
+
+### Dataset
+```{r}
+
+```
+
+### a)
+
+## Ejercicio 3.4
+
+### Dataset
+```{r}
+
+```
+
+### a)
+
+## Ejercicio 3.5
+
+### Dataset
+```{r}
+
+```
+
+### a)
+
+## Ejercicio 3.6
+
+### Dataset
+```{r}
+
+```
+
+### a)
