@@ -33,6 +33,63 @@ suppressMessages( library(robustbase) )
 suppressMessages( library(quantreg) )
 suppressMessages( library(MPV) )
 suppressMessages( library(olsrr) )
+suppressMessages( library(faraway) )
+suppressMessages( library(glmnet) )
+suppressMessages( library(pls) )
+```
+
+## Funciones
+
+```{r}
+test_supuestos <- function( my_model, nivel_significancia = 0.05 ) {
+  
+suppressMessages( require(lmtest) )
+suppressMessages( require(car) )
+  
+  #Shapiro Test
+  t_sha <- shapiro.test( my_model$residuals )
+  t_sha_obs <- ifelse( t_sha$p.value > nivel_significancia,
+                       "Los residuos son normales.",
+                       "Los residuos NO son normales.")
+  
+  #BP Test
+  t_bp <- bptest( my_model )
+  t_bp_obs <- ifelse( unname(t_bp$p.value) > nivel_significancia,
+                     "Homocedasticidad. La varianza de los residuos es constante.",
+                     "Heterocedasticidad. La varianza de los residuos NO es constante.")
+  
+  #Durbin-Watson Test
+  t_dwt <- durbinWatsonTest( my_model )
+  t_dwt_obs <- ifelse( t_dwt$p > nivel_significancia,
+                      "No hay autocorrelación. Los residuos son independientes.",
+                      "Hay autocorrelación. Los residuos NO son independientes.")
+  
+  resultados <- data.frame(
+    Prueba = c("Shapiro", "Breusch-Pagan", "Durbin-Watson"),
+    P_Value = c(t_sha$p.value, unname(t_bp$p.value), t_dwt$p)
+  )
+  
+  resultados$H0 <- ifelse( resultados$P_Value > nivel_significancia, "No rechazada", "Rechazada" )
+  resultados$Observaciones <- ifelse( resultados$Prueba == "Shapiro", t_sha_obs,
+                                     ifelse( resultados$Prueba == "Breusch-Pagan", t_bp_obs, t_dwt_obs ) )
+
+  return(resultados)
+}
+
+analizar_vif <- function(modelo) {
+  
+  vif_values <- vif(modelo)
+  
+  categorias <- ifelse(vif_values <= 1, "Ausente",
+                       ifelse(vif_values <= 5, "Moderada",
+                              "Significativa"))
+  
+  resultado <- data.frame(Variables = names(vif_values),
+                          VIF = vif_values,
+                          Multicolinealidad = categorias,
+                          row.names = 1:length(vif_values))
+  return(resultado)
+}
 ```
 
 ## Ejercicio 3.1
@@ -146,40 +203,431 @@ modelo_todos_best$predictors[modelo]
 Finalmente me quedo con el modelo con 3 variables que es el que incluye x5, x8 y x10
 
 ## Ejercicio 3.2
+Con el conjunto de datos fat de la biblioteca faraway de R, se registran la edad, el peso, la altura y 10 mediciones de la circunferencia corporal
+de 252 hombres. El porcentaje de grasa corporal de cada hombre se estimó con precisión mediante una técnica de pesaje bajo el agua.
 
 ### Dataset
-
-### a)
 ```{r}
-
+data("fat")
 ```
+
+### a) Hallar el mejor modelo de regresión lineal con variable respuesta brozek utilizando entre 1 y 14 variables predictoras. Elegir el mejor considerando el criterio CP de Mallows y R2adj . 
+```{r}
+predictor_combinations <- regsubsets(brozek ~ ., data = fat, nvmax = 14)
+summary(predictor_combinations)
+
+cp_values <- summary(predictor_combinations)$cp
+adjr2_values <- summary(predictor_combinations)$adjr2
+
+best_model_cp <- which.min(cp_values)
+best_model_adjr2 <- which.max(adjr2_values)
+```
+
+```{r}
+p <- ggplot(data = data.frame(n_predictores = 1:14, 
+            R_ajustado = summary(predictor_combinations)$adjr2), 
+            aes( x = n_predictores, y = R_ajustado) ) + 
+            geom_line() + 
+            geom_point()
+
+p <- p + geom_point( aes( x=n_predictores[which.max(summary(predictor_combinations)$adjr2)], 
+                          y=R_ajustado[which.max(summary(predictor_combinations)$adjr2)]), 
+                          colour = "red", size = 3 )
+
+p <- p + scale_x_continuous(breaks = c(0:14)) + theme_bw() + 
+  labs(title = "R2 ajustado vs Número de predictores", x = "Número predictores", y = "R2 Ajustado")
+
+p
+```
+
+```{r}
+p <- ggplot(data = data.frame(n_predictores = 1:14, 
+            cp_mallows = summary(predictor_combinations)$cp), 
+            aes( x = n_predictores, y = cp_mallows) ) + 
+            geom_line() + 
+            geom_point()
+
+p <- p + geom_point( aes( x= n_predictores[which.min(summary(predictor_combinations)$cp)], 
+                          y= cp_mallows[which.min(summary(predictor_combinations)$cp)]), 
+                          colour = "red", size = 3 )
+
+p <- p + scale_x_continuous(breaks = c(0:14)) + theme_bw() + 
+  labs(title = "CP Mallows vs Número de predictores", x = "Número predictores", y="CP Mallows" )
+
+p
+```
+```{r}
+cat( "R2 Ajustado modelo 10: ", adjr2_values[10], "\n")
+cat( "R2 Ajustado modelo 7: ", adjr2_values[7], "\n")
+```
+
+Dado que la diferencia en el R2 es ínfima para el modelo con 7 y 10 variables, basado en el criterio de parsimonia y que el indice mínimo de CP de Mallows se ve en el modelo con 7 predictores, es el que elijo ya que propriza las explicaciones mas sencillas frente al resto.
+
+### b) Repetir considerando ahora la minimización del Error Cuadrático Medio del modelo usando validación cruzada leave one out.
+```{r}
+control <- trainControl(method = "LOOCV")
+
+modelo_loocv2 <- train(brozek ~ ., data = fat, method = "lm", trControl = control)
+
+print(modelo_loocv2)
+```
+
+### c) Inspeccionar gráficamente el MSE y decidir cuál es el mejor modelo. Interpretar los coeficientes del mismo.
+```{r}
+#Modelo 1 (7)
+model_index <- 7
+var_names <- names(fat)[-1]
+selected_vars <- na.omit(var_names[summary(predictor_combinations)$which[model_index, ]])
+
+formula_str <- paste("brozek ~", paste(selected_vars, collapse = " + "))
+formula <- as.formula(formula_str)
+
+modelo_loocv1 <- train(formula, data = fat, method = "lm", trControl = control)
+print(modelo_loocv1)
+
+#Modelo 2
+print(modelo_loocv2)
+```
+
+### d) Coinciden las variables de los modelos elegidos con los diferentes criterios.
+```{r}
+cat( "Modelo 1 - RMSE:", modelo_loocv1$results$RMSE ," / MSE: ", modelo_loocv1$results$RMSE^2, "\n")
+cat( "Modelo 2 - RMSE:", modelo_loocv2$results$RMSE ," / MSE: ", modelo_loocv2$results$RMSE^2, "\n")
+```
+
+El modelo 1 pese a contar con 7 variables predictoras tiene una mejor performance frente al modelo con 14 variables predictoras.
 
 ## Ejercicio 3.3
+Con los datos macroeconómicos longley de la biblioteca lars de R, que presentan alta colinealidad vamos a ajustar modelos de regularización.
+La base tiene 16 registros de 7 variables económicas observadas entre 1947 y 1962.
 
 ### Dataset
 ```{r}
-
+data(longley)
 ```
 
-### a)
+### a) Ajustar un modelo de Ridge para la variable respuesta Employed.
+```{r}
+x <- model.matrix(Employed ~ ., data = longley)[, -1] 
+y <- longley$Employed
+
+modelos_ridge <- glmnet(x = x, y = y, alpha = 0)
+
+plot(modelos_ridge, xvar = "lambda", label = TRUE)
+```
+
+```{r}
+set.seed(1)
+cv_error_ridge <- cv.glmnet(x = x, y = y, alpha = 0, nfolds = 10, type.measure = "mse") 
+plot(cv_error_ridge)
+```
+
+### b) Ajustar un modelo de Lasso para la variable respuesta Employed.
+```{r}
+modelos_lasso <- glmnet(x = x, y = y, alpha = 1) 
+plot(modelos_lasso, xvar = "lambda", label = TRUE)
+```
+
+```{r}
+set.seed(1) 
+cv_error_lasso <- cv.glmnet(x = x, y = y, alpha = 1, nfolds = 10) 
+plot(cv_error_lasso)
+```
+
+### c) Ajustar un modelo de Elastic Net para la variable respuesta Employed.
+```{r}
+modelos_elastic_net <- glmnet(x = x, y = y, alpha = 0.5) 
+plot(modelos_elastic_net, xvar = "lambda", label = TRUE)
+```
+
+```{r}
+set.seed(1) 
+cv_error_elastic_net <- cv.glmnet(x = x, y = y, alpha = 0.5, nfolds = 10) 
+plot(cv_error_elastic_net)
+```
+
+
+### d) Comparar los resultados obtenidos en los tres modelos.
+```{r}
+#par(mfrow = c(1, 3)) 
+plot(cv_error_ridge, ylab = "Mean Square Error Ridge") 
+abline(h = 7) 
+plot(cv_error_lasso, ylab = "Mean Square Error Lasso") 
+abline(h = 7)
+plot(cv_error_elastic_net, ylab = "Mean Square Error Elastic Net") 
+abline(h = 7)
+```
+
+```{r}
+set.seed(100)
+train.ind <- sample(1:nrow(longley), size = 0.75*(nrow(longley)))
+train <- longley[train.ind, ]
+test <- longley[-train.ind, ]
+
+lm.comp <- lm(Employed ~., data = train)
+lm.comp.pred <- predict(lm.comp, new_data = test)
+lm.mse <- mean((lm.comp.pred - test$Employed)^2)
+
+tmatrix <- x
+
+ridge.pred = predict(modelos_ridge, s = cv_error_ridge$lambda.min, newx=tmatrix)
+ridge.mse = mean((ridge.pred - longley$Employed)^2)
+
+lasso.pred = predict(modelos_lasso, s = cv_error_lasso$lambda.min, newx=tmatrix)
+lasso.mse = mean((lasso.pred - longley$Employed)^2)
+
+enet.pred = predict(modelos_elastic_net, s = cv_error_elastic_net$lambda.min, newx=tmatrix)
+enet.mse = mean((enet.pred - longley$Employed)^2)
+
+names <- c("Full", "Ridge", "Lasso", "Elastic Net")
+values <- c(lm.mse, ridge.mse, lasso.mse, enet.mse)
+
+barplot(values, 
+        names.arg = names, 
+        main = "Mean Squared Error", 
+        xlab = "Modelos", 
+        ylab = "MSE", 
+        col = "lightblue")
+```
+
+```{r}
+names <- c("Ridge", "Lasso", "Elastic Net")
+values <- c(ridge.mse, lasso.mse, enet.mse)
+
+barplot(values, 
+        names.arg = names, 
+        main = "Mean Squared Error", 
+        xlab = "Modelos", 
+        ylab = "MSE", 
+        col = "lightblue")
+```
 
 ## Ejercicio 3.4
+Los datos prostata.xlsx disponibles en contiene 99 registros con una serie de medidas clínicas en hombres previas a una cirugía de próstata.
 
 ### Dataset
-```{r}
-
+```{r, warning=FALSE}
+setwd("C:/Austral/mcd-reg-adv/datasets")
+prostata <- read_delim("prostata.csv", delim = ";", escape_double = FALSE, trim_ws = TRUE, show_col_types = FALSE)
 ```
 
-### a)
+### a) Considerando la variable respuesta log_psa, ajustar un modelo lineal utilizando como predictoras a todas las demás. ¿Qué inconveniente tiene este modelo?.
+```{r}
+modelo.prosta <- lm(log_psa ~., data=prostata)
+summary(modelo.prosta)
+```
+
+```{r}
+test_supuestos(modelo.prosta)
+```
+
+```{r}
+analizar_vif( modelo.prosta )
+```
+
+Analizando el VIF podemos concluir que existe multicolinealidad **modereada** en todas las variables del modelo.
+
+```{r}
+plot(modelo.prosta)
+```
+
+
+```{r}
+cor( prostata[,-which(names(prostata) == 'log_psa')] )
+corrplot( cor( prostata[,-which(names(prostata) == 'log_psa')] ) )
+```
+
+
+### b) Aplicar un método de selección de variables utilizando como criterio BIC. ¿Qué variables quedaron? ¿Coinciden con el OLS?.
+```{r}
+mod.pros.comb <- regsubsets(log_psa ~ ., data = prostata, nvmax = 8)
+summary(mod.pros.comb)
+```
+
+```{r}
+which.min( summary( mod.pros.comb )$bic )
+```
+
+```{r}
+p <- ggplot(data = data.frame(n_predictores = 1:8, 
+            BIC = summary(mod.pros.comb)$bic), 
+            aes( x = n_predictores, y = BIC) ) + 
+            geom_line() + 
+            geom_point()
+
+p <- p + geom_point( aes( x=n_predictores[which.min(summary(mod.pros.comb)$bic)], 
+                          y=BIC[which.min(summary(mod.pros.comb)$bic)]), 
+                          colour = "red", size = 3 )
+
+p <- p + scale_x_continuous(breaks = c(0:14)) + theme_bw() + 
+  labs(title = "BIC vs Número de predictores", x = "Número predictores", y = "BIC")
+
+p
+```
+
+```{r}
+selected_variables <- names(coef(mod.pros.comb, id = which.min(summary(mod.pros.comb)$bic)))
+
+print(selected_variables)
+```
+
+Las variables mas significativas que aparecian en el modelo OLS, aparecen luego realizando un ajuste por BIC.
+
+### c) Ajustar ahora modelos regularizados y comparar los resultados y coeficientes utilizando CV.
+#### Lasso
+```{r}
+#Lasso
+x <- model.matrix(log_psa ~ ., data = prostata)[, -1] 
+y <- prostata$log_psa
+
+modelos_lasso <- glmnet(x = x, y = y, alpha = 1)
+set.seed(1) 
+cv_error_lasso <- cv.glmnet(x = x, y = y, alpha = 1, nfolds = 10, type.measure = "mse") 
+```
+#### Ridge
+```{r}
+#Ridge
+modelos_ridge <- glmnet(x = x, y = y, alpha = 0)
+set.seed(1)
+cv_error_ridge <- cv.glmnet(x = x, y = y, alpha = 0, nfolds = 10, type.measure = "mse")
+
+```
+#### Elastic Net
+```{r}
+#Elastic Net
+modelos_elastic_net <- glmnet(x = x, y = y, alpha = 0.5)
+set.seed(1) 
+cv_error_elastic_net <- cv.glmnet(x = x, y = y, alpha = 0.5, nfolds = 10, type.measure = "mse") 
+```
+#### Full
+```{r}
+#Full
+set.seed(100)
+train.ind <- sample(1:nrow(prostata), size = 0.75*(nrow(prostata)))
+train <- prostata[train.ind, ]
+test <- prostata[-train.ind, ]
+
+lm.comp <- lm(log_psa ~., data = train)
+lm.comp.pred <- predict(lm.comp, new_data = test)
+lm.mse <- mean((lm.comp.pred - prostata$log_psa)^2)
+```
+
+```{r}
+tmatrix <- x
+
+ridge.pred = predict(modelos_ridge, s = cv_error_ridge$lambda.min, newx=tmatrix)
+ridge.mse = mean((ridge.pred - prostata$log_psa)^2)
+
+lasso.pred = predict(modelos_lasso, s = cv_error_lasso$lambda.min, newx=tmatrix)
+lasso.mse = mean((lasso.pred - prostata$log_psa)^2)
+
+enet.pred = predict(modelos_elastic_net, s = cv_error_elastic_net$lambda.min, newx=tmatrix)
+enet.mse = mean((enet.pred - prostata$log_psa)^2)
+
+names <- c("Full", "Ridge", "Lasso", "Elastic Net")
+values <- c(lm.mse, ridge.mse, lasso.mse, enet.mse)
+
+barplot(values, 
+        names.arg = names, 
+        main = "Mean Squared Error", 
+        xlab = "Modelos", 
+        ylab = "MSE", 
+        col = "lightblue")
+```
 
 ## Ejercicio 3.5
+Los dos conjuntos de datos están relacionados con variantes rojas y blancas del vino portugués "Vinho Verde"[Cortez et al., 2009]. Debido a cuestiones de privacidad y logística, solo están disponibles variables fisicoquímicas (entradas) y sensoriales (salida). Las clases están ordenadas y no equilibradas (por ejemplo, hay muchos más vinos normales que excelentes o malos). Los algoritmos de detección de valores atípicos podrían usarse para detectar los pocos vinos excelentes o malos. Además, no estamos seguros de si todas las variables de entrada son relevantes. Por lo que podría ser interesante probar métodos de selección de variables. Las bases de datos son winequality-white y winequality-red disponibles en shorturl.at/krty9 y shorturl.at/eqy39.
 
 ### Dataset
+```{r}
+setwd("C:/Austral/mcd-reg-adv/datasets")
+winequality_white <- read_delim("winequality-white.csv", 
+    delim = ";", escape_double = FALSE, locale = locale(encoding = "WINDOWS-1252"), 
+    trim_ws = TRUE)
+
+winequality_red <- read_delim("winequality-red.csv", 
+    delim = ";", escape_double = FALSE, locale = locale(encoding = "WINDOWS-1252"), 
+    trim_ws = TRUE)
+
+winequality_red <- winequality_red[,1:12]
+```
+
+### a) Realizar un correlograma para el conjunto de variables explicativas. Tiene sentido en este caso un PCA? En caso afirmativo explore las componentes principales.
+```{r}
+corrplot( cor(winequality_white[,-which(names(winequality_white) == 'calidad')]), method = "circle", title = "Vinos Blancos")
+corrplot( cor(winequality_red[,-which(names(winequality_red) == 'calidad')]), method = "circle", title = "Vinos Tintos")
+```
+
+```{r}
+pca <- prcomp(winequality_white[,-which(names(winequality_white) == 'calidad')], scale. = TRUE)
+summary(pca)
+plot(pca, type = "l")
+```
+
+```{r}
+pca <- prcomp(winequality_red[,-which(names(winequality_red) == 'calidad')], scale. = TRUE)
+summary(pca)
+plot(pca, type = "l")
+```
+
+### b) Partir la base en train-test. Considerando la calidad como variable respuestas, ajustar un modelo de PCR.
+```{r}
+set.seed(666)
+indices.blanco <- createDataPartition(winequality_white$calidad, p = 0.8, list = FALSE)
+
+set.seed(666)
+indices.tinto <- createDataPartition(winequality_red$calidad, p = 0.8, list = FALSE)
+
+train_blanco <- winequality_white[indices.blanco, ] 
+test_blanco <- winequality_white[-indices.blanco, ]
+
+train_tinto <- winequality_red[indices.tinto, ] 
+test_tinto <- winequality_red[-indices.tinto, ]
+
+
+```
+
+### c) Cuál es el número óptimo de componentes principales a considerar? Grafique las puntuaciones originales y las ajustadas por PCR.
+```{r}
+
+modelo.blanco.pcr <- pcr(calidad ~ ., data = train_blanco, scale = TRUE, validation = "CV")
+pred_blanco_pcr <- predict(object = modelo.blanco.pcr, newdata = test_blanco, ncomp = 1) 
+test_blanco_MSE_PCR <- mean((pred_blanco_pcr - test_blanco$calidad)^2) 
+validationplot(modelo.blanco.pcr, val.type = "RMSEP")
+
+modelo.tinto.pcr <- pcr(calidad ~ ., data = train_tinto, scale = TRUE, validation = "CV")
+pred_tinto_pcr <- predict(object = modelo.tinto.pcr, newdata = test_tinto, ncomp = 3) 
+test_tinto_MSE_PCR <- mean((pred_tinto_pcr - test_tinto$calidad)^2) 
+validationplot(modelo.tinto.pcr, val.type = "RMSEP")
+```
+
+### d) Calcular el MSE para este subconjunto de componentes.
 ```{r}
 
 ```
 
-### a)
+### e) Realizar el ajuste en este caso con PLS. Comparar los resultados de ambos modelos.
+```{r}
+set.seed(666)
+modelo.blanco.pls <- plsr(calidad ~ ., data = train_blanco, scale = TRUE, validation = "CV") 
+pred_blanco_pls <- predict(object = modelo.blanco.pls, newdata = test_blanco, ncomp = 3) 
+test_blanco_MSE_PLS <- mean((pred_blanco_pls - test_blanco$calidad)^2) 
+validationplot(modelo.blanco.pls, val.type = "RMSEP")
+
+set.seed(666)
+modelo.tinto.pls <- plsr(calidad ~ ., data = train_tinto, scale = TRUE, validation = "CV")
+pred_tinto_pls <- predict(object = modelo.tinto.pls, newdata = test_tinto, ncomp = 1) 
+test_tinto_MSE_PLS <- mean((pred_tinto_pls - test_tinto$calidad)^2) 
+validationplot(modelo.tinto.pls, val.type = "RMSEP")
+```
+
+```{r}
+Sepa <- c("Blanco", "Tinto") 
+MSE_PCR <- c(test_blanco_MSE_PCR, test_tinto_MSE_PCR)
+MSE_PLS <- c(test_blanco_MSE_PLS, test_tinto_MSE_PLS)
+resultados <- data.frame(Sepa, MSE_PCR, MSE_PLS) 
+resultados
+```
 
 ## Ejercicio 3.6
 
