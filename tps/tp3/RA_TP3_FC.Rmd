@@ -538,6 +538,9 @@ barplot(values,
 ## Ejercicio 3.5
 Los dos conjuntos de datos están relacionados con variantes rojas y blancas del vino portugués "Vinho Verde"[Cortez et al., 2009]. Debido a cuestiones de privacidad y logística, solo están disponibles variables fisicoquímicas (entradas) y sensoriales (salida). Las clases están ordenadas y no equilibradas (por ejemplo, hay muchos más vinos normales que excelentes o malos). Los algoritmos de detección de valores atípicos podrían usarse para detectar los pocos vinos excelentes o malos. Además, no estamos seguros de si todas las variables de entrada son relevantes. Por lo que podría ser interesante probar métodos de selección de variables. Las bases de datos son winequality-white y winequality-red disponibles en shorturl.at/krty9 y shorturl.at/eqy39.
 
+// PCR: Principal Component Regression
+// PLS: Partial Least Squares
+
 ### Dataset
 ```{r}
 setwd("C:/Austral/mcd-reg-adv/datasets")
@@ -583,8 +586,6 @@ test_blanco <- winequality_white[-indices.blanco, ]
 
 train_tinto <- winequality_red[indices.tinto, ] 
 test_tinto <- winequality_red[-indices.tinto, ]
-
-
 ```
 
 ### c) Cuál es el número óptimo de componentes principales a considerar? Grafique las puntuaciones originales y las ajustadas por PCR.
