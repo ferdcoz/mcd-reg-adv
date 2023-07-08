@@ -16,6 +16,11 @@ suppressMessages( library( pgirmess ) )
 suppressMessages( library( nortest ) )
 suppressMessages( library( moments ) )
 suppressMessages( library( MASS ) )
+suppressMessages( library( readr ) )
+suppressMessages( library( zoo ) )
+suppressMessages( library( ggplot2 ) )
+suppressMessages( library( gridExtra) )
+suppressMessages( library( lsr ) )
 ```
 
 ## Funciones
@@ -561,22 +566,192 @@ Se pretende evaluar el efecto de la humedad en el suelo sobre la germinación de
 
 ### Dataset
 
-### a)
+```{r}
 
-### b)
+semillas <- read_delim("https://raw.githubusercontent.com/ferdcoz/mcd-reg-adv/main/datasets/semillas.csv", 
+    delim = ";", escape_double = FALSE, trim_ws = TRUE)
+```
 
-### c)
+```{r}
+semillas$humedad <- as.factor(semillas$humedad)
+semillas$cobertura <- as.factor(semillas$cobertura)
+```
 
-### d)
+Verifico si el dataset posee NAs
 
-### e)
+```{r}
+summary(semillas)
+```
+
+```{r}
+replace_na_with_mean <- function(data) {
+  for (col in colnames(data)) {
+    col_mean <- mean(data[[col]], na.rm = TRUE)
+    data[[col]][is.na(data[[col]])] <- col_mean
+  }
+  return(data)
+}
+
+semillas1 <- replace_na_with_mean(semillas)
+```
+
+### a) **Analice la proporción de germinación global.**
+
+```{r}
+p1 <- ggplot(data = semillas1, mapping = aes(x = humedad, y = germ)) + geom_boxplot() + 
+  theme_bw() 
+p2 <- ggplot(data = semillas1, mapping = aes(x = cobertura, y = germ)) + geom_boxplot() + 
+  theme_bw() 
+p3 <- ggplot(data = semillas1, mapping = aes(x = humedad, y = germ, colour = cobertura)) + 
+  geom_boxplot() + theme_bw() 
+
+grid.arrange(p1, p2, ncol = 2)
+p3
+```
+
+### b) **Estudie si hay asociación entre la humedad y la germinación.**
+
+```{r}
+with(data = semillas1, expr = tapply(germ, humedad, mean))
+```
+
+```{r}
+with(data = semillas1, expr = tapply(germ, humedad, sd))
+```
+
+```{r}
+with(data = semillas1, expr = tapply(germ, cobertura, mean))
+```
+
+```{r}
+with(data = semillas1, expr = tapply(germ, cobertura, sd))
+```
+
+### c) **Analice si la germinación depende de la cobertura y si hay interacción entre los dos factores.**
+
+```{r}
+with(data = semillas1, expr = tapply(germ, list(cobertura, humedad), mean))
+```
+
+```{r}
+with(data = semillas1, expr = tapply(germ, list(cobertura, humedad), sd))
+```
+
+```{r}
+interaction.plot(trace.factor = semillas1$humedad, 
+                 x.factor = semillas1$cobertura, 
+                 response = semillas1$germ, 
+                 fun = "mean", 
+                 legend = TRUE, 
+                 col = 2:3, 
+                 type = "b") 
+```
+
+```{r}
+interaction.plot(trace.factor = semillas1$cobertura, 
+                 x.factor = semillas1$humedad, 
+                 response = semillas1$germ, 
+                 fun = "mean", 
+                 legend = TRUE, 
+                 col = 2:3, 
+                 type = "b") 
+```
+
+### d) **Construya un modelo que permita explicar la relación de los dos factores con el porcentaje de germinación.**
+
+```{r}
+anova_2vias <- aov(formula = germ ~ cobertura*humedad, data = semillas1) 
+summary(anova_2vias)
+```
+
+La humedad y la interaccion de la humedad y la cobertura son significativas.
+
+### e) **Utilice los efectos y las comparaciones a posteriori para realizar una recomendación.**
+
+```{r}
+etaSquared(anova_2vias)
+```
+
+```{r}
+par(mfrow = c(2,2)) 
+plot(anova_2vias)
+```
 
 ## Ejercicio 4.6
 
+Se pretende estudiar la eficacia, medida por un score, de un medicamento considerando las combinaciones de dos factores: el género (masculino
+
+y femenino) y la edad categorizada (joven, adulto). Se quiere analizar si el efecto es diferente entre alguno de los niveles de cada variable por si sola o en
+
+combinación. Los datos están en el archivo eficacia.xlsx.
+
 ### Dataset
 
-### a)
+```{r}
+eficacia <- read_csv("https://raw.githubusercontent.com/ferdcoz/mcd-reg-adv/main/datasets/eficacia.csv")
+```
 
-### b)
+### a) **Explorar visualmente las medias por las distintas combinaciones de los factores considerados.**
 
-### c)
+```{r}
+p1 <- ggplot(data = eficacia, mapping = aes(x = sexo, y = score_eficacia)) + geom_boxplot() + 
+  theme_bw() 
+p2 <- ggplot(data = eficacia, mapping = aes(x = edad, y = score_eficacia)) + geom_boxplot() + 
+  theme_bw() 
+p3 <- ggplot(data = eficacia, mapping = aes(x = sexo, y = score_eficacia, colour = edad)) + 
+  geom_boxplot() + theme_bw() 
+
+grid.arrange(p1, p2, ncol = 2)
+
+p3
+```
+
+El medicamento es mas eficaz en el hombre cuando es adulto, que cuando es joven. Por otro lado, en las mujeres es mas eficaz el medicamento cuando son jovenes que cuando son adultas. Parece haber interaccion entre las variables sexo y edad para evaluar la eficacia del medicamento.
+
+### b) **Valorar visualmente la presencia de interacción.**
+
+```{r}
+interaction.plot(trace.factor = eficacia$edad, 
+                 x.factor = eficacia$sexo, 
+                 response = eficacia$score_eficacia, 
+                 fun = "mean", 
+                 legend = TRUE, 
+                 col = 2:3, 
+                 type = "b") 
+```
+
+```{r}
+interaction.plot(trace.factor = eficacia$sexo, 
+                 x.factor = eficacia$edad, 
+                 response = eficacia$score_eficacia, 
+                 fun = "mean", 
+                 legend = TRUE, 
+                 col = 2:3, 
+                 type = "b") 
+```
+
+### c) **Construir un modelo y estimar los coeficientes del mismo. Interpretar los coeficientes y el efecto.**
+
+```{r}
+anova_2vias <- aov(formula = score_eficacia ~ sexo*edad, data = eficacia) 
+summary(anova_2vias)
+```
+
+Como conclusion del anova, la variable sexo no es significativa, por lo que no sirve para explicar la eficacia del medicamento.
+
+La variable edad, es algo significativa, pero no tanto.
+
+No obstante, la interaccion entre ambas variables si es significativa.
+
+```{r}
+etaSquared(anova_2vias)
+```
+
+El estadıstico de eta cuadrado parcial (η\^2p) es la proporcion de varianza explicada por el efecto (efecto de A, efecto de B o efecto de interaccion AB) mas la del error que se puede atribuir a dicho efecto o fuente de varianza
+
+Considerando la interaccion, se explica el 35% de la varianza. La vaiable sexo, explica solo el 7%, lo cual es razonable ya que la variable no era significativa.
+
+```{r}
+par(mfrow = c(2,2)) 
+plot(anova_2vias)
+```

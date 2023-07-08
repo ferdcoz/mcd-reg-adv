@@ -850,7 +850,7 @@ Usaremos los datosChemicalManufacturingProcess de la biblioteca AppliedPredictiv
 ### Dataset
 
 ```{r}
-quimicos <- ChemicalManufacturingProcess
+quimicos <- data.frame(ChemicalManufacturingProcess)
 ```
 
 ### a) Realizar un análisis cuidadoso de las variables predictoras y una limpieza de la base.
