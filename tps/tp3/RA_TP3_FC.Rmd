@@ -92,6 +92,56 @@ analizar_vif <- function(modelo) {
                           row.names = 1:length(vif_values))
   return(resultado)
 }
+
+analisis_outliers <- function(v_datos) {
+
+Atributo <- colnames(v_datos[0,1:ncol(v_datos)])
+df <- data.frame(Atributo)
+df$Q1 <- NA
+df$Q3 <- NA
+df$IQR <- NA
+df$ModSup <- NA
+df$ModInf <- NA
+df$SevSup <- NA
+df$SevInf <- NA
+df$OutModSup <- ""
+df$OutModInf <- ""
+df$OutSevSup <- ""
+df$OutSevInf <- ""
+
+for (i in 1:ncol(v_datos)){
+
+  stats <- as.data.frame(t(summary(v_datos[, i])))
+  
+  q1 <- stats$Freq[stats$Var2 == "1st Qu."]
+  q3 <- stats$Freq[stats$Var2 == "3rd Qu."]
+  
+  iqr <- q3-q1
+  ModSup <- q3+(1.5*iqr)
+  ModInf <- q1-(1.5*iqr)
+  SevSup <- q3+(3*iqr)
+  SevInf <- q1-(3*iqr)
+  
+  OutModSup <- v_datos[,i][v_datos[,i]<SevInf]
+  if (length(OutModSup) == 0) {OutModSup<-'NA'} else {OutModSup <- paste(OutModSup,collapse = ",")}
+  
+  OutModInf <- v_datos[,i][v_datos[,i]<ModInf]
+  if (length(OutModInf) == 0) {OutModInf<-'NA'} else {OutModInf <- paste(OutModInf,collapse = ",")}
+  
+  OutSevSup <- v_datos[,i][v_datos[,i]>ModSup]
+  if (length(OutSevSup) == 0) {OutSevSup<-'NA'} else {OutSevSup <- paste(OutSevSup,collapse = ",")}
+  
+  OutSevInf <- v_datos[,i][v_datos[,i]>SevSup]  
+  if (length(OutSevInf) == 0) {OutSevInf<-'NA'} else {OutSevInf <- paste(OutSevInf,collapse = ",")}
+
+  df[i,2:12] <- c(q1,q3,iqr,ModSup,ModInf,SevSup,SevInf,OutModSup,OutModInf,OutSevSup,OutSevInf)
+  
+}
+  
+return(df)
+
+rm(Atributo,i,stats,q1,q3,iqr,ModSup,ModInf,SevSup,SevInf,OutModSup,OutModInf,OutSevSup,OutSevInf,v_datos,df)
+}
 ```
 
 ## Ejercicio 3.1
@@ -820,57 +870,7 @@ quimicos_clean[na_rows, ]
 ```
 
 ```{r}
-#Puedo ver si existen valores outliers
-
-v_datos <- quimicos_clean
-
-Atributo <- colnames(v_datos[0,1:ncol(v_datos)])
-df <- data.frame(Atributo)
-df$Q1 <- NA
-df$Q3 <- NA
-df$IQR <- NA
-df$ModSup <- NA
-df$ModInf <- NA
-df$SevSup <- NA
-df$SevInf <- NA
-df$OutModSup <- ""
-df$OutModInf <- ""
-df$OutSevSup <- ""
-df$OutSevInf <- ""
-
-for (i in 2:ncol(v_datos)){
-
-  stats <- as.data.frame(t(summary(v_datos[, i])))
-  
-  q1 <- stats$Freq[1]
-  q3 <- stats$Freq[3]
-  
-  iqr <- q3-q1
-  ModSup <- q3+(1.5*iqr)
-  ModInf <- q1-(1.5*iqr)
-  SevSup <- q3+(3*iqr)
-  SevInf <- q1-(3*iqr)
-  
-  OutModSup <- v_datos[,i][v_datos[,i]<SevInf]
-  if (length(OutModSup) == 0) {OutModSup<-'NA'} else {OutModSup <- paste(OutModSup,collapse = ",")}
-  
-  OutModInf <- v_datos[,i][v_datos[,i]<ModInf]
-  if (length(OutModInf) == 0) {OutModInf<-'NA'} else {OutModInf <- paste(OutModInf,collapse = ",")}
-  
-  OutSevSup <- v_datos[,i][v_datos[,i]>ModSup]
-  if (length(OutSevSup) == 0) {OutSevSup<-'NA'} else {OutSevSup <- paste(OutSevSup,collapse = ",")}
-  
-  OutSevInf <- v_datos[,i][v_datos[,i]>SevSup]  
-  if (length(OutSevInf) == 0) {OutSevInf<-'NA'} else {OutSevInf <- paste(OutSevInf,collapse = ",")}
-
-  df[i-1,2:12] <- c(q1,q3,iqr,ModSup,ModInf,SevSup,SevInf,OutModSup,OutModInf,OutSevSup,OutSevInf)
-  
-}
-  
-outliers <- df
-outliers
-
-rm(Atributo,i,stats,q1,q3,iqr,ModSup,ModInf,SevSup,SevInf,OutModSup,OutModInf,OutSevSup,OutSevInf,v_datos,df)
+analisis_outliers(quimicos_clean)
 ```
 
 ```{r}
