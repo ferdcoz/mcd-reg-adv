@@ -154,8 +154,23 @@ legend('bottomleft', c('Sin diabetes', 'Con diabetes'), pch = 21, col = c('light
 ### c) Construya una tabla que contenga para cada grupo etáreo la media de la edad y la media de DIABET, que corresponde a la proporción de individuos que tienen DIABET en cada grupo. Analice.
 
 ```{r}
-#Armar la tabla con la variable SSPG (grupos) / Media SSPG / Proporcion DIABET
+max_sspg <- max(diabetes$SSPG)
 
+breaks <- seq(0, max_sspg, length.out = 11)
+
+group_sspg <- cut(diabetes$SSPG, breaks = breaks, labels = FALSE, include.lowest = TRUE)
+
+mean_sspg <- tapply(diabetes$SSPG, group_sspg, mean)
+
+proportion_diabet <- tapply(diabetes$DIABET, group_sspg, mean)
+
+output_table <- data.frame(
+  Grupos = paste0(breaks[-length(breaks)], "-", breaks[-1]),
+  Media_SSPG = round(mean_sspg, 2),
+  Propor_DIABET = round(proportion_diabet, 2)
+)
+
+print(output_table)
 ```
 
 ### d) Ajuste un modelo para estimar diabet en función de SSPG.
