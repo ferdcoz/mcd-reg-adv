@@ -278,21 +278,21 @@ data
 
 Se tienen los p valores de la Prueba de Levene(p=0.18); Prueba de Shapiro - Wilks de los residuos del modelo ( p = 0,24). Se pide:
 
-### a) **Identifique la variable dependiente y el factor de interes.**
+### a) Identifique la variable dependiente y el factor de interes.
 
 -   Dependiente: número de horas en que el paciente está libre de dolor después de haber sido tratado
 
 -   Factor de interes: Los diferentes tipos de tratamiento: Placebo, Aspirina y Droga
 
-### b) **Escriba el modelo, en general y en términos del problema.**
+### b) Escriba el modelo, en general y en términos del problema.
 
 Yij = µi + εij
 
-### c) **Analice los resultados de las pruebas de hipótesis para los supuestos del modelo.**
+### c) Analice los resultados de las pruebas de hipótesis para los supuestos del modelo.
 
 No hay evidencia suficiente para rechazar la hipotesis nula de que los residuos del modelo son normales, y homocedasticos.
 
-### d) **Plantee las hipótesis y construya la tabla de Anova sabiendo que SCerror = suma(ni − 1)s\^2**
+### d) Plantee las hipótesis y construya la tabla de Anova sabiendo que SCerror = suma(ni − 1)s\^2
 
 H0 : µ1 = µ2 = · · · = µk
 
@@ -304,7 +304,7 @@ H1: El número de horas en que el paciente está libre de dolor es distinto.
 
 #### SSW
 
-$$SSW = \sum_{i=1}^{k}\left( n_{i}-1 \right)S_{i}^{2} $$
+$$ SSW = \sum_{i=1}^{k}\left( n_{i}-1 \right)S_{i}^{2} $$
 
 ```{r}
 k <- 3
@@ -325,7 +325,7 @@ ssw
 
 #### S2p
 
-$$ S^{2}_{p}=\frac{SSW}{n-k} $$
+$$ S\^{2}\_{p}=\frac{SSW}{n-k} $$
 
 ```{r}
 s2p <- ssw/(n1+n2+n3-k)
@@ -334,7 +334,7 @@ s2p
 
 #### Media General
 
-$$\overline{X}_{G}=\frac{1}{n}\sum_{i=1}^{k}\left( n_{i} \overline{X}_{i} \right)$$
+$$ \overline{X}_{G}=\frac{1}{n}\sum_{i=1}^{k}\left( n_{i} \overline{X}_{i} \right) $$
 
 ```{r}
 mean1 <- data$Media[data$Tratamiento == "Placebo"]
@@ -400,7 +400,7 @@ pvalue
 rm(k,n,n1,n2,n3,sd1,sd2,sd3,ssw,s2p,mean1,mean2,mean3,MedG,ssb,sst,F,gld,glr,pvalue)
 ```
 
-### e) C**ompare los tratamientos y utilizando un test t con nivel global 0.05 es decir que como son 3 comparaciones α = 0,05/3 para cada una.**
+### e) Compare los tratamientos y utilizando un test t con nivel global 0.05 es decir que como son 3 comparaciones α = 0,05/3 para cada una.
 
 ```{r}
 
@@ -454,7 +454,7 @@ datalong <- data %>%
 datalong
 ```
 
-### a) **Grafique los tiempos de cocción por tratamiento. Calcule las medidas resumen de los mismos.**
+### a) Grafique los tiempos de cocción por tratamiento. Calcule las medidas resumen de los mismos.
 
 ```{r}
 boxplot(data)
@@ -472,9 +472,9 @@ summary(data)
 analisis_outliers(data)
 ```
 
-### b) **Establezca las hipótesis de interés, escriba el modelo detallando los supuestos.**
+### b) Establezca las hipótesis de interés, escriba el modelo detallando los supuestos.
 
-### c) **Realice la prueba y el diagnostico correspondiente. ¿Son válidos los resultados de la prueba?**
+### c) Realice la prueba y el diagnostico correspondiente. ¿Son válidos los resultados de la prueba?
 
 ```{r}
 datalong$Grupo <- as.factor(datalong$Grupo)
@@ -504,13 +504,13 @@ agostino.test(residuals(dataANOVA))
 
 Se rechaza la hipotesis nula. La distribucion no es normal.
 
-### d) **Si respondió afirmativamente en c) concluya en el contexto del problema. Si concluyo negativamente intente una transformación de potenciaconveniente para normalizar y/o homocedastizar la variable respuesta.**
+### d) Si respondió afirmativamente en c) concluya en el contexto del problema. Si concluyo negativamente intente una transformación de potenciaconveniente para normalizar y/o homocedastizar la variable respuesta.
 
 ```{r}
 bc <- boxcox(Minuto ~ Grupo, lambda= -2:2, data =datalong)
 ```
 
-### e) **Realice nuevamente la prueba si fuera necesario y el diagnóstico del modelo correspondiente. Concluya en términos del problema**
+### e) Realice nuevamente la prueba si fuera necesario y el diagnóstico del modelo correspondiente. Concluya en términos del problema.
 
 ```{r}
 lambda <- bc$x[ which.max(bc$y) ]
@@ -544,7 +544,7 @@ shapiro.test(dataANOVA2$residuals)
 
 Sigo rechazando la normalidad. Por ende, voy a la opcion no parametrica de Kruskal Wallis.
 
-### f) **Compare los resultados con los del test no paramétrico**
+### f) Compare los resultados con los del test no paramétrico.
 
 #### Kruskall Wallis
 
@@ -595,7 +595,7 @@ replace_na_with_mean <- function(data) {
 semillas1 <- replace_na_with_mean(semillas)
 ```
 
-### a) **Analice la proporción de germinación global.**
+### a) Analice la proporción de germinación global.
 
 ```{r}
 p1 <- ggplot(data = semillas1, mapping = aes(x = humedad, y = germ)) + geom_boxplot() + 
@@ -609,7 +609,7 @@ grid.arrange(p1, p2, ncol = 2)
 p3
 ```
 
-### b) **Estudie si hay asociación entre la humedad y la germinación.**
+### b) Estudie si hay asociación entre la humedad y la germinación.
 
 ```{r}
 with(data = semillas1, expr = tapply(germ, humedad, mean))
@@ -627,7 +627,7 @@ with(data = semillas1, expr = tapply(germ, cobertura, mean))
 with(data = semillas1, expr = tapply(germ, cobertura, sd))
 ```
 
-### c) **Analice si la germinación depende de la cobertura y si hay interacción entre los dos factores.**
+### c) Analice si la germinación depende de la cobertura y si hay interacción entre los dos factores.
 
 ```{r}
 with(data = semillas1, expr = tapply(germ, list(cobertura, humedad), mean))
@@ -657,7 +657,7 @@ interaction.plot(trace.factor = semillas1$cobertura,
                  type = "b") 
 ```
 
-### d) **Construya un modelo que permita explicar la relación de los dos factores con el porcentaje de germinación.**
+### d) Construya un modelo que permita explicar la relación de los dos factores con el porcentaje de germinación.
 
 ```{r}
 anova_2vias <- aov(formula = germ ~ cobertura*humedad, data = semillas1) 
@@ -666,7 +666,7 @@ summary(anova_2vias)
 
 La humedad y la interaccion de la humedad y la cobertura son significativas.
 
-### e) **Utilice los efectos y las comparaciones a posteriori para realizar una recomendación.**
+### e) Utilice los efectos y las comparaciones a posteriori para realizar una recomendación.
 
 ```{r}
 etaSquared(anova_2vias)
@@ -691,7 +691,7 @@ combinación. Los datos están en el archivo eficacia.xlsx.
 eficacia <- read_csv("https://raw.githubusercontent.com/ferdcoz/mcd-reg-adv/main/datasets/eficacia.csv")
 ```
 
-### a) **Explorar visualmente las medias por las distintas combinaciones de los factores considerados.**
+### a) Explorar visualmente las medias por las distintas combinaciones de los factores considerados.
 
 ```{r}
 p1 <- ggplot(data = eficacia, mapping = aes(x = sexo, y = score_eficacia)) + geom_boxplot() + 
@@ -708,7 +708,7 @@ p3
 
 El medicamento es mas eficaz en el hombre cuando es adulto, que cuando es joven. Por otro lado, en las mujeres es mas eficaz el medicamento cuando son jovenes que cuando son adultas. Parece haber interaccion entre las variables sexo y edad para evaluar la eficacia del medicamento.
 
-### b) **Valorar visualmente la presencia de interacción.**
+### b) Valorar visualmente la presencia de interacción.
 
 ```{r}
 interaction.plot(trace.factor = eficacia$edad, 
@@ -730,7 +730,7 @@ interaction.plot(trace.factor = eficacia$sexo,
                  type = "b") 
 ```
 
-### c) **Construir un modelo y estimar los coeficientes del mismo. Interpretar los coeficientes y el efecto.**
+### c) Construir un modelo y estimar los coeficientes del mismo. Interpretar los coeficientes y el efecto.
 
 ```{r}
 anova_2vias <- aov(formula = score_eficacia ~ sexo*edad, data = eficacia) 
