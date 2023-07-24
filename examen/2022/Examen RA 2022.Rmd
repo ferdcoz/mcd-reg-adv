@@ -1,0 +1,869 @@
+---
+title: "Examen"
+author: "Fernando Coz"
+date: "2023-07-15"
+output:
+  pdf_document: default
+  html_document: default
+  word_document: default
+  latex_engine: xelatex
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Librerias
+```{r}
+suppressMessages( library( readxl ) )
+suppressMessages( library( performance ) )
+suppressMessages( library( ggplot2 ) )
+suppressMessages( library( MASS ) )
+suppressMessages( library( olsrr ) )
+suppressMessages( library( leaps ) )
+suppressMessages( library( gamlss ) )
+suppressMessages( library( readr ) )
+suppressMessages( library( gridExtra ) )
+suppressMessages( library( vcd ) )
+suppressMessages( library( ROCR ) )
+suppressMessages( library( ResourceSelection ) )
+suppressMessages( library( MLmetrics ) )
+suppressMessages( library( caret ) )
+```
+
+## Funciones
+```{r}
+analizar_vif <- function(modelo) {
+  #Factor de Inflación de la Varianza (VIF)
+  suppressMessages( library( car ) )
+  
+  vif_values <- vif(modelo)
+  
+  categorias <- ifelse(vif_values <= 1, "Ausente",
+                       ifelse(vif_values <= 5, "Moderada",
+                              "Significativa"))
+  
+  resultado <- data.frame(Variables = names(vif_values),
+                          VIF = vif_values,
+                          Multicolinealidad = categorias,
+                          row.names = 1:length(vif_values))
+  return(resultado)
+}
+
+test_supuestos <- function( my_model, nivel_significancia = 0.05 ) {
+  
+suppressMessages( require(lmtest) )
+suppressMessages( require(car) )
+suppressMessages( require(nortest) )
+  
+  #Shapiro Test
+  t_sha <- shapiro.test( my_model$residuals )
+  t_sha_obs <- ifelse( t_sha$p.value > nivel_significancia,
+                       "Los residuos son normales.",
+                       "Los residuos NO son normales.")
+  
+  #Anderson-Darling
+  t_ad <- ad.test( my_model$residuals )
+  t_ad_obs <- ifelse( t_ad$p.value > nivel_significancia,
+                       "Los residuos son normales.",
+                       "Los residuos NO son normales.")
+  
+  #Lilliefors
+  t_ll <- lillie.test( my_model$residuals )
+  t_ll_obs <- ifelse( t_ll$p.value > nivel_significancia,
+                       "Los residuos son normales.",
+                       "Los residuos NO son normales.")
+  
+  #BP Test
+  t_bp <- bptest( my_model )
+  t_bp_obs <- ifelse( unname(t_bp$p.value) > nivel_significancia,
+                     "Homocedasticidad. La varianza de los residuos es constante.",
+                     "Heterocedasticidad. La varianza de los residuos NO es constante.")
+  
+  #Goldfel-Quandt
+  t_gq <- gqtest( my_model )
+  t_gq_obs <- ifelse( unname(t_gq$p.value) > nivel_significancia,
+                     "Homocedasticidad. La varianza de los residuos es constante.",
+                     "Heterocedasticidad. La varianza de los residuos NO es constante.")
+  
+  #Durbin-Watson Test
+  t_dwt <- durbinWatsonTest( my_model )
+  t_dwt_obs <- ifelse( t_dwt$p > nivel_significancia,
+                      "No hay autocorrelación. Los residuos son independientes.",
+                      "Hay autocorrelación. Los residuos NO son independientes.")
+  
+  resultados <- data.frame(
+    Prueba = c("Shapiro-Wilk", "Anderson-Darling", "Lilliefors", "Breusch-Pagan", "Goldfeld-Quandt", "Durbin-Watson"),
+    P_Value = c(t_sha$p.value,t_ad$p.value,t_ll$p.value, unname(t_bp$p.value), unname(t_gq$p.value), t_dwt$p)
+  )
+  
+  resultados$H0 <- ifelse( resultados$P_Value > nivel_significancia, "No rechazada", "Rechazada" )
+  resultados$Observaciones <- ifelse( resultados$Prueba == "Shapiro-Wilk", t_sha_obs,
+                                    ifelse( resultados$Prueba == "Anderson-Darling", t_ad_obs,
+                                    ifelse( resultados$Prueba == "Lilliefors", t_ll_obs,
+                                    ifelse( resultados$Prueba == "Breusch-Pagan", t_bp_obs,
+                                    ifelse( resultados$Prueba == "Goldfeld-Quandt", t_gq_obs,
+                                             t_dwt_obs )))) 
+                                     )
+
+  return(resultados)
+}
+
+test_supuestos_aov <- function( my_model, nivel_significancia = 0.05 ) {
+  
+suppressMessages( require(lmtest) )
+suppressMessages( require(car) )
+  
+  #Shapiro Test
+  t_sha <- shapiro.test( my_model$residuals )
+  t_sha_obs <- ifelse( t_sha$p.value > nivel_significancia,
+                       "Los residuos son normales.",
+                       "Los residuos NO son normales.")
+  
+  #Levene Test
+  t_l <- leveneTest( my_model )
+  t_l_obs <- ifelse( unname(t_l$`Pr(>F)`[1]) > nivel_significancia,
+                     "Homocedasticidad. La varianza de los residuos es constante.",
+                     "Heterocedasticidad. La varianza de los residuos NO es constante.")
+  
+  resultados <- data.frame(
+    Prueba = c("Shapiro", "Levene"),
+    P_Value = c(t_sha$p.value, t_l$`Pr(>F)`[1])
+  )
+  
+  resultados$H0 <- ifelse( resultados$P_Value > nivel_significancia, "No rechazada", "Rechazada" )
+  resultados$Observaciones <- ifelse( resultados$Prueba == "Shapiro", t_sha_obs, t_l_obs )
+  
+  return(resultados)
+}
+
+outliers_influential_test <- function(model) {
+  library(dplyr)
+  
+  fitted_values <- model$fitted.values
+  residuals <- model$residuals
+  hat_values <- lm.influence(model)$hat
+  p <- length(model$coefficients)
+  n <- length(residuals)
+  
+  # Bonferroni
+  bonferroni <- list(which(abs(residuals) > qt(0.975, n-2) * sd(residuals)))
+  
+  # Cook's
+  cook <- list(which(cooks.distance(model) > 4/(n - p - 1)))
+  cook2 <- list(which(cooks.distance(model) > 4/n))
+  
+  # dfbetas
+  dfbetas <- list(unique(which(dfbetas(model)[,2]>1)))
+  
+  # dffits
+  dffits <- list(unique(which(abs(dffits(model)) > 2 * sqrt(p/n))))
+  
+  # Leverage 
+  #leverage_1 <- list(which(hat_values > 6/n))
+  leverage_2 <- list(which(hat_values > 2 * p/n))
+  leverage_3 <- list(which(hat_values > 3 * p/n))
+  
+  bonferroni_str <- toString(unlist(bonferroni))
+  cook_str <- toString(unlist(cook))
+  cook_str2 <- toString(unlist(cook2))
+  dfbetas_str <- toString(unlist(dfbetas))
+  dffits_str <- toString(unlist(dffits))
+  #leverage_str1 <- toString(unlist(leverage_1))
+  leverage_str2 <- toString(unlist(leverage_2))
+  leverage_str3 <- toString(unlist(leverage_3))
+
+  results <- data.frame(
+    Test_Criteria = c("Bonferroni", "Cook 1", "Cook 2", "DFBetas", "DFFits", "Leverage 2", "Leverage 3"),
+    Influential_Points = c(bonferroni_str, cook_str, cook_str2, dfbetas_str, dffits_str, leverage_str2, leverage_str3),
+    stringsAsFactors = FALSE
+  )
+  
+  return(results)
+}
+```
+
+
+## Ejercicio 1
+En el archivo preciocasas.xlsx se han registrado respecto de 100 viviendas las siguientes variables:
+
+• impuestos: valor de impuesto anual de la vivienda.
+
+• dormitorios cantidad de ambientes de la vivienda.
+
+• banios: cantidad de baños del inmueble.
+
+• estrena: si es a estrenar.
+
+• precio: valor del alquiler de la vivienda.
+
+• tamanio: superficie total de la vivienda.
+
+### Dataset
+```{r}
+casas <- read_excel("C:/Austral/mcd-reg-adv/datasets/preciocasas.xlsx")
+```
+
+### 1. Construir un modelo lineal simple para explicar el precio en función de la superficie y evaluar la bondad del ajuste.
+
+```{r}
+modelo.casas <- lm(precio ~ tamanio, data=casas)
+summary(modelo.casas)
+```
+
+* El test de Wald para el coeficiente tamanio arroja un p value < 0.05.
+
+* El test de la regresión tiene un p value < 0.05, lo que implica que el modelo es en su conjunto significativo.
+
+
+### 2. Realizar un análisis diagnóstico y de puntos influyentes e indicar si el modelo es adecuado.
+
+#### Analíticamente
+
+```{r}
+test_supuestos(modelo.casas)
+```
+
+#### Gráficamente
+
+```{r, warning=FALSE}
+check_model( modelo.casas ) 
+```
+
+#### Analisis de outliers y puntos influyentes
+
+```{r}
+outliers_influential_test(modelo.casas)
+```
+
+```{r}
+ols_plot_resid_lev(modelo.casas, print_plot = TRUE)
+```
+
+```{r, warning=FALSE}
+#Opcion 1 gráfico
+datos <- casas
+datos$predicciones <- predict(modelo.casas)
+
+leverage <- hatvalues(modelo.casas)
+std_residuals <- rstandard(modelo.casas)
+
+datos$label <- NA
+
+identify_label <- "Leverage"
+datos$label[leverage > 2 * mean(leverage)] <- identify_label
+
+identify_label <- "Outlier"
+datos$label[abs(std_residuals) > 2] <- identify_label
+
+identify_label <- "Outlier & Leverage"
+datos$label[leverage > 2 * mean(leverage) & abs(std_residuals) > 2] <- identify_label
+
+ggplot(datos, aes(x = tamanio, y = precio)) +
+  geom_point() +
+  geom_smooth(method = "lm", se = FALSE, color = "lightgrey") +
+  geom_segment(aes(xend = tamanio, yend = predicciones), col = "red", lty = "dashed") +
+  geom_point(aes(y = predicciones), col = "red") +
+  geom_label(aes(label = label), nudge_y = 1000) +
+  labs(x = "Tamaño", y = "Precio") +
+  theme_light()
+```
+
+```{r, warning=FALSE}
+#Opcion 2 gráfico
+library(ggrepel)
+
+datos <- casas
+datos$predicciones <- predict(modelo.casas)
+
+leverage <- hatvalues(modelo.casas)
+std_residuals <- rstandard(modelo.casas)
+
+datos$label <- NA
+
+identify_label <- "Leverage"
+datos$label[leverage > 2 * mean(leverage)] <- identify_label
+
+identify_label <- "Outlier"
+datos$label[abs(std_residuals) > 2] <- identify_label
+
+identify_label <- "Outlier & Leverage"
+datos$label[leverage > 2 * mean(leverage) & abs(std_residuals) > 2] <- identify_label
+
+ggplot(datos, aes(x = tamanio, y = precio)) +
+  ggtitle("Influential Points - Modelo Casas")+
+  geom_point() +
+  geom_smooth(method = "lm", se = FALSE, color = "lightgrey", linetype = "dashed") +
+  geom_segment(aes(xend = tamanio, yend = predicciones), col = "#d62728", lty = "dashed") +
+  #geom_point(aes(y = predicciones), col = "lightgrey") +
+  geom_label_repel(aes(label = label, color = label), nudge_y = 1000, show.legend = FALSE) +
+  labs(x = "Tamaño", y = "Precio") +
+  scale_color_manual(values = c("Leverage" = "#1f77b4", "Outlier" = "#2ca02c", "Outlier & Leverage" = "#ff7f0e")) +
+  theme_light()
+
+```
+
+##### OUTLIERS
+```{r}
+# Test de Bonferroni
+outlierTest( modelo.casas )
+```
+
+La observación 64 quedó señalada como valor extremo u outlier. Viendolo gráficamente:
+```{r}
+influenceIndexPlot( modelo.casas, vars="Bonf", las=1, col="blue")
+```
+
+##### PUNTOS INFLUYENTES
+```{r}
+summary( influence.measures(model = modelo.casas) )
+```
+Analizando la salida aparecen señalados distintos puntos bajo distintos criterios, como puntos influyentes: 6,7,9,22,35,64,76
+
+###### Distancia de Cook
+```{r}
+n<-length(casas$caso)
+p<-length(modelo.casas$coefficients)
+
+dcook<-cooks.distance(modelo.casas)
+influyentes <- unique(which(dcook>4/n))
+influyentes
+```
+
+Usando un criterio mas exigente:
+```{r}
+corted<-qf(0.5,2,n-2)
+unique(which(dcook>corted))
+```
+
+Visualizandolo gráficamente
+```{r}
+influenceIndexPlot( modelo.casas, vars="Cook", las=1, col="blue")
+```
+
+```{r}
+influencePlot( model = modelo.casas )
+```
+
+
+###### DFFITS y DFBETA
+El punto 9 se corresponde con un valor superior de corte (1) y queda señalado como punto influyente.
+```{r}
+unique(which(dfbetas(modelo.casas)[,2]>1))
+```
+
+Usando el criterio de DFFITS, y el punto de corte 2 * sqrt( p/n ) aparecen otras observaciones: 6,7,9,35,66,76
+```{r}
+unique(which(abs(dffits(modelo.casas))>2 * sqrt(p / n)))
+```
+
+Si vemos el DFFITS gráficamente
+```{r}
+df <- modelo.casas$df.residual
+
+dffits_crit = 2 * sqrt( p/n )
+dffits <- dffits( modelo.casas )
+
+df <- data.frame( obs = names( dffits ), dffits = dffits )
+
+ggplot( df, aes( y = dffits, x = obs ) ) +
+    geom_point( color = '#013ADF' ) +
+    geom_hline( yintercept = c( dffits_crit, -dffits_crit ), 
+        linetype = 'dashed' ) +
+    labs( title = 'DFFITS', 
+        subtitle = 'Observaciones Influyentes', 
+        x = 'Orden de Observación', 
+        y = 'DFFITS') + 
+    theme_bw()
+```
+
+No aparecen valores influyentes con 
+```{r}
+lev <- hatvalues(modelo.casas)
+unique(which(lev>0.2))
+```
+
+```{r}
+lev <- hatvalues(modelo.casas)
+unique(which(lev>2*p/n))
+```
+
+Finalmente, las observaciones 6, 9 y 64 son identificadas como influyentes bajo distintos criterios y puntos de cortes.
+
+### 3. Realizar una transformación de la variable respuesta para lograr normalidad en la distribución de los residuos. Indicar si el modelo con esta transformación resulta adecuado.
+
+```{r}
+bc <- boxcox( precio ~ tamanio, lambda = -2:2, data = casas )
+```
+
+```{r}
+lambda <- bc$x[ which.max(bc$y) ]
+lambda
+```
+
+```{r}
+#Arreglar la transformación
+modelo.casas2 <- lm( ( ( precio^(lambda) - 1 ) / lambda ) ~ tamanio, data = casas )
+summary( modelo.casas2 )
+```
+
+```{r}
+test_supuestos(modelo.casas2)
+```
+Realizando nuevamente un análisis diagnóstico, vemos que pese a realizar la transformación por boxcox los residuos siguen sin ser normales.
+
+### 4. Eliminar la observación 64 y ajustar nuevamente el segundo modelo evaluando su validez.
+Elimino la observación 64 del dataset
+```{r}
+casa_clean <- casas[casas$caso != 64, ]
+```
+
+Volvemos a ajustar la transformación de boxcox con el nuevo dataset y obtener el nuevo valor de lambda
+```{r}
+bc <- boxcox( precio ~ tamanio, lambda = -2:2, data = casa_clean )
+lambda <- bc$x[ which.max(bc$y) ]
+lambda
+```
+
+Ajustamos nuevamente un modelo lineal con el nuevo set de datos y valor de lambda:
+```{r}
+modelo.casas3 <- lm( ( ( precio^(lambda) - 1 ) / lambda ) ~ tamanio, data = casa_clean )
+summary( modelo.casas3 )
+```
+
+Finalmente comprobamos que luego de eliminar la observación 64 no rechazamos la hipotesis de normalidad del test de Shapiro al igual que el test de homocedasticidad, con lo cual podemos concluir que dicha observación era influyente y aumentaba los residuos.
+
+```{r}
+test_supuestos(modelo.casas3)
+```
+
+### 5. Ajustar un modelo robusto y evaluar el promedio de los errores absolutos cometidos. Comparar con el mejor modelo lineal disponible.
+```{r}
+modelo.casas.robusto <- rlm(precio ~ tamanio, data = casa_clean, psi=psi.huber)
+summary(modelo.casas.robusto)
+```
+
+```{r}
+indices_validacion <- sample(nrow(casa_clean), round(0.2 * nrow(casa_clean)))
+datos_entrenamiento <- casa_clean[-indices_validacion, ]
+datos_validacion <- casa_clean[indices_validacion, ]
+
+modelo.lm <- lm(( ( precio^(lambda) - 1 ) / lambda ) ~ tamanio, data = datos_entrenamiento)
+pred.lm <- predict(modelo.lm, newdata = datos_validacion)
+
+#library(caret)
+#RMSE(pred.lm, datos_validacion$precio)
+lm.resid <- pred.lm - datos_validacion$precio
+lm.rmse <- sqrt(mean(lm.resid^2))
+
+modelo.rlm <- rlm( precio ~ tamanio, data = datos_validacion, psi=psi.huber)
+pred.rlm <- predict(modelo.rlm, newdata = datos_validacion)
+
+#RMSE(pred.rlm, datos_validacion$precio)
+rlm.resid <- pred.rlm - datos_validacion$precio
+rlm.rmse <- sqrt(mean(rlm.resid^2))
+
+print(paste("LM RSME:", round(lm.rmse,2)))
+print(paste("RLM RSME:", round(rlm.rmse,2)))
+```
+
+Un valor menor de RSME sugiere que el modelo robusto es mejor que el modelo lineal prediciendo la variable dependiente.
+
+### 6. Utilizar un método de selección de variables para proponer un modelo multivariado. Analizar el cumplimiento de los supuestos.
+```{r}
+modelo.casas.comb <- regsubsets(precio ~ ., data = casa_clean[,2:7], nvmax = 5)
+summary(modelo.casas.comb)
+```
+
+```{r}
+adjr2_values <- summary(modelo.casas.comb)$adjr2
+best_model_adjr2 <- which.max(summary(modelo.casas.comb)$adjr2)
+```
+
+```{r}
+p <- ggplot(data = data.frame(n_predictores = 1:5, 
+            R_ajustado = summary(modelo.casas.comb)$adjr2), 
+            aes( x = n_predictores, y = R_ajustado) ) + 
+            geom_line() + 
+            geom_point()
+
+p <- p + geom_point( aes( x=n_predictores[which.max(summary(modelo.casas.comb)$adjr2)], 
+                          y=R_ajustado[which.max(summary(modelo.casas.comb)$adjr2)]), 
+                          colour = "red", size = 3 )
+
+p <- p + scale_x_continuous(breaks = c(0:14)) + theme_bw() + 
+  labs(title = "R2 ajustado vs Número de predictores", x = "Número predictores", y = "R2 Ajustado")
+
+p
+```
+```{r}
+cat( "R2 Ajustado modelo 2: ", adjr2_values[2], "\n")
+cat( "R2 Ajustado modelo 3: ", adjr2_values[3], "\n")
+cat( "R2 Ajustado modelo 4: ", adjr2_values[4], "\n")
+```
+Dado que la mejora entre el modelo con 3 y 4 variables no es significativa, y siguiendo con el principio de parsimonia elijo el modelo con la menora cantiidad de variables, es decir el modelo 3.
+
+```{r}
+modelo.casas.final <- lm( precio ~ tamanio + impuestos + dormitorios, data=casa_clean )
+summary(modelo.casas.final)
+```
+
+```{r}
+test_supuestos(modelo.casas.final)
+```
+Podemos observar que se cumple el supuesto de normalidad pero no así el de heterocedasticidad.
+
+### 7. Le parece adecuado un modelo GAMLSS en este caso? Justifique.
+Tal como se observa en el punto anterior, y quedando en evidencia que no se cumple el supuesto de homocedasticidad, resultaría útil modelar usando un modelo GAMLSS.
+
+```{r}
+modelo.casas.gamlss <- gamlss( formula = precio ~ pb(tamanio) + pb(impuestos) + pb(dormitorios), 
+    #sigma.formula = ~ pb(tamanio) + pb(impuestos) + pb(dormitorios), 
+    family = GA, 
+    data = casa_clean[2:7], 
+    trace = FALSE )
+
+summary(modelo.casas.gamlss)
+```
+
+```{r}
+wp( modelo.casas.gamlss )
+```
+Vemos que el modelo tiene los residuos dentro del rando de variación aceptable.
+
+```{r}
+# modelo_OLS
+#mod OLS <- gamlss( formula = valor metros + anio + calef +
+#local,
+#family = NO, data = datos, trace = FALSE)
+#summary(mod OLS)
+#GAIC(modelo.casas.final, modelo.casas.gamlss)
+```
+
+
+### 8. Resuma sus conclusiones
+1. Normalidad: Comenzamos evaluando y trabajando sobre la normalidad. Dado que no se cumplia el supuesto, se trabajó con una transformación hasta llegar a un modelo donde se cumpliera dicho supuesto. 
+2. Residuos: En la segunda etapa se hizo énfasis en los residuos y dado que no se cumplia el supuesto trabajamos con modelos especificos para casos donde la varianza no se es constante.
+En resumen, fuimos trabajando en cada area y corrigiendo aplicando métodos y modelos para disminuir la influencia de estas alteraciones.
+
+## Ejercicio 2
+Se desea saber si la dosis de ácido ascórbico y el tipo de bebida en la cual se lo administró a ciertos animales de
+laboratorio logró mayor desarrollo de los dientes en los mismo. Se utilizaron 60 replicaciones del experimento y se tienen grupos
+balanceados. La variable respuesta de interés es la longitud de los dientes frontales(len). Los resultados están en el archivo
+odonto.csv Se pide analizar, analítica y gráficamente, si:
+
+### Dataset
+```{r}
+odonto <- read.csv("C:/Austral/mcd-reg-adv/datasets/odonto.csv")
+```
+
+### 1. ¿Existen diferencias estadísticamente significativas respecto de las dosis administradas?
+
+```{r}
+odonto$dose <- factor(odonto$dose)
+
+p1 <- ggplot(data = odonto, mapping = aes(x = dose, y = len)) + geom_boxplot() + 
+  theme_bw() 
+p2 <- ggplot(data = odonto, mapping = aes(x = supp, y = len)) + geom_boxplot() + 
+  theme_bw() 
+p3 <- ggplot(data = odonto, mapping = aes(x = supp, y = len, colour = dose)) + 
+  geom_boxplot() + theme_bw() 
+
+grid.arrange(p1, p2, ncol = 2)
+p3
+```
+
+#### Analíticamente
+```{r}
+aov_odonto <- aov(formula = len ~ dose, data = odonto)
+summary(aov_odonto)
+```
+
+#### Gráficamente
+```{r}
+boxplot(len ~ dose, data = odonto, xlab = "Dosis", ylab = "Longitud dientes frontales")
+```
+
+Podemos corrobarar tanto analíticamente como gráficamente que existe diferencias estadísticamente significativas respecto de las dosis administradas para la longitud de crecimiento de los dientes.
+
+### 2. ¿Existen diferencias estadísticamente singificativas respeccto del tipo de vehículo de administración?
+
+#### Analíticamente
+```{r}
+aov_odonto_supp <- aov(formula = len ~ supp, data = odonto)
+summary(aov_odonto_supp)
+```
+
+#### Graficamente
+```{r}
+boxplot(len ~ supp, data = odonto, xlab = "Supp", ylab = "Longitud dientes frontales")
+```
+Podemos corrobarar tanto analíticamente como gráficamente que no existe diferencias estadísticamente significativas respecto de las vehiculos para la longitud de crecimiento de los dientes. El p-valor de la muestra ~0.06 con lo que 
+
+### 3. La interacción entre estas variables es significativa?
+```{r}
+aov_odonto_inter <- aov(formula = len ~ supp*dose, data = odonto)
+summary(aov_odonto_inter)
+```
+
+```{r}
+interaction.plot(trace.factor = odonto$supp, 
+                 x.factor = odonto$dose, 
+                 response = odonto$len, 
+                 fun = "mean", 
+                 legend = TRUE, 
+                 col = 2:3, 
+                 type = "b") 
+```
+
+```{r}
+interaction.plot(trace.factor = odonto$dose, 
+                 x.factor = odonto$supp, 
+                 response = odonto$len, 
+                 fun = "mean", 
+                 legend = TRUE, 
+                 col = 2:3, 
+                 type = "b") 
+```
+
+Existen diferencias estadísticamente significativas entre ambas dosis y tipos de bebidas, y que existe una interacción estadísticamente significativa entre estas dos variables en términos de su efecto sobre la longitud del diente La diferencia en los valores de p para Supp entre los dos modelos puede explicarse por la presencia de una interacción entre Supp y dosis. Cuando se tiene en cuenta esta interacción, queda claro que existe una diferencia estadísticamente significativa entre los tipos de bebidas.
+
+### 4. ¿Se satisfacen los supuestos del modelo?
+
+```{r}
+test_supuestos_aov(aov_odonto_inter)
+```
+
+
+#### Analíticamente
+```{r}
+shapiro.test( aov_odonto_inter$residuals )
+```
+No se rechaza la hipotesis nula de normalidad.
+
+```{r}
+leveneTest(aov_odonto_inter)
+```
+No se rechaza la hipotesis nula de homocedasticidad.
+
+Graficamente podemos corroborar lo mencionado en la parte analítica
+##### Gráficamente
+```{r}
+check_model(aov_odonto_inter)
+```
+
+### 5. ¿Puede realizar una recomendación?
+Si la dosis es de 2mg no importa el tipo de vehiculo que se utilice, la longitud promedio del largo de los dientes será la misma. Ahora para el caso de dosis de 0.5 como 1mg conviene la aplicación por medio del vehiculo VJ si se quiere tener una longitud promedio mayor de los dientes frontales.
+
+## Ejercicio 3
+En el archivo morosos.xlsx se encuentran los registros de 10 mil clientes de un banco para los cuales se relevaron las siguientes variables:
+
+• mora: si está en mora con el saldo de su tarjeta de crédito.
+
+• estudiantes: si es estudiante o no.
+
+• balance: el saldo al 31/12 próximo pasado.
+
+• ingreso: ingreso mensual medio del cliente.
+
+### Dataset
+```{r}
+morosos <-read_excel("C:/Austral/mcd-reg-adv/datasets/morosos.xlsx")
+```
+
+### 1. Ajustar un modelo logístico para predecir la probabilidad de incurrir en mora.
+```{r}
+morosos$mora <- ifelse(morosos$mora == "Yes", 1, 0)
+
+modelo.morosos <- glm(mora ~ estudiante + balance + ingreso, data = morosos, family = "binomial")
+summary(modelo.morosos)
+```
+
+Analizando las variables se observa que en el Test de Wald, la variable
+
+```{r}
+table(morosos$mora)
+```
+Existe un desbalanceo significativo en la distribucion de los casos de mora.
+
+### 2. Evaluar la calidad de ajuste del modelo con al menos dos criterios distintos.
+```{r}
+indices_validacion <- sample(nrow(morosos), round(0.2 * nrow(morosos)))
+datos_entrenamiento <- morosos[-indices_validacion, ]
+datos_validacion <- morosos[indices_validacion, ]
+
+modelo.morosos2 <- glm(mora ~ estudiante + balance + ingreso, data = datos_entrenamiento, family = "binomial")
+
+probs_validacion <- predict(modelo.morosos2, newdata = datos_validacion, type = "response")
+
+corte <- 0.5
+
+predicciones_validacion <- ifelse(probs_validacion >= corte, 1, 0)
+
+matriz_confusion <- table(observado = datos_validacion$mora, predicho = predicciones_validacion)
+
+print(matriz_confusion)
+```
+
+```{r}
+matriz_confusion <- confusionMatrix(factor(predicciones_validacion), factor(datos_validacion$mora))
+```
+
+```{r}
+print(matriz_confusion$table)
+```
+
+
+```{r}
+mosaic(matriz_confusion$table,
+       shade = TRUE,
+       colorize = TRUE,
+       xlab = "Predicciones",
+       ylab = "Observado",
+       main = "Matriz de Confusión",
+       gp = gpar(fill = matrix(c("aquamarine3", "tomato3", "tomato3", "aquamarine3"),2,2)))
+```
+
+```{r}
+sensitivity(matriz_confusion$table)
+```
+
+```{r}
+specificity(matriz_confusion$table)
+```
+
+Se observa la existencia de una baja especificidad: el modelo predijo el 34% de los casos POSITIVOS. Sin embargo, existe un alta sensibilidad: el modelo predijo el 99% de los casos NEGATIVOS.
+
+Teniendo en cuenta estos indicadores, es posible indicar que si bien el modelo es eficiente en encontrar casos NETIVOS, posee un desempeño regular en la predicción de casos POSITIVOS, es decir, en clientes con mora. Esto puede deberse al desbalanceo de clases que se observa en la variable a predecir.
+
+```{r}
+predic <- prediction(predicciones_validacion, datos_validacion$mora)
+perf <-  performance(predic, "tpr","fpr", alpha = seq(0, 1, by = 0.01))
+
+plot(perf,
+     main = "Curva ROC - Mora",
+     xlab="Tasa de falsos positivos", 
+     ylab="Tasa de verdaderos positivos")
+abline(a=0,b=1,col="blue",lty=2)
+grid()
+auc <- as.numeric(performance(predic,"auc")@y.values)
+legend("bottomright",legend=paste(" AUC =",round(auc,4)))
+```
+
+```{r}
+hoslem.test(datos_entrenamiento$mora, fitted(modelo.morosos2))
+```
+Si bien el test de Hosmer y Lemeshow no rechaza la hipotesis nula de un buen ajuste por parte del modelo logistico. Como vimos en el apartado anterior, solo lo hace para los casos negativos o sin probabilidad de mora.
+
+### 3. Interpretar los coeficientes del modelo elegido.
+```{r}
+exp(coef(modelo.morosos))
+```
+
+estudianteYes: El coeficiente para la variable "estudianteYes" es -0.6468. Al aplicar la función exponencial, el odds ratio es aproximadamente 0.5247. Esto significa que, manteniendo todas las demás variables constantes, los estudiantes tienen aproximadamente un 47.53% menos de odds de estar en mora en comparación con los no estudiantes.
+
+balance: El coeficiente para "balance" es 0.005737. Al aplicar la función exponencial, el odds ratio es aproximadamente 1.00576. Esto implica que, manteniendo todas las demás variables constantes, por cada unidad adicional de saldo en la tarjeta de crédito, las odds de estar en mora aumentan en aproximadamente un 0.576%.
+
+ingreso: El coeficiente para "ingreso" es muy pequeño, 3.033e-06 (aproximadamente 0.000003033). Al aplicar la función exponencial, el odds ratio es cercano a 1, lo que significa que no hay un cambio significativo en las odds de estar en mora asociado con el ingreso mensual medio del cliente. Además, el valor p (Pr(>|z|)) es 0.71152, lo que indica que el ingreso no es estadísticamente significativo para predecir la mora.
+
+En resumen, en este modelo logístico, las variables "estudiante" y "saldo" parecen tener un impacto significativo en la predicción de si un cliente estará en mora con su tarjeta de crédito. Mientras que, el ingreso no parece ser un predictor relevante para la mora. 
+
+### 4. Evaluar la calidad de clasificación y compararlo con otro método de clasificación.
+```{r}
+library(rpart)
+
+arbol <- rpart( mora ~ estudiante + balance + ingreso,
+            data = datos_entrenamiento,
+            xval=      0,
+            cp=        0,   # esto significa no limitar la complejidad de los splits
+            minsplit=  5,   # minima cantidad de registros para que se haga el split
+            minbucket= 5,   # tamaño minimo de una hoja
+            maxdepth=  5 )  # profundidad maxima del arbol
+```
+
+```{r}
+predicted_classes <- factor( predict(arbol, datos_validacion, type = "vector") >= 0.5 )
+```
+
+```{r}
+library(rpart.plot)
+
+rpart.plot(arbol, 
+                    # show fitted class, probs, percentages
+           box.palette = "GnBu", # color scheme
+           branch.lty = 3,       # dotted branch lines
+           shadow.col = "grey",  # shadows under the node boxes
+           nn = TRUE)  
+```
+
+```{r}
+pred_arbol <- predict(arbol, datos_validacion, type = "vector")
+pred_arbol_clases <- ifelse(pred_arbol > 0.5, 1, 0)
+```
+
+```{r}
+confusion_matrix_arbol <- confusionMatrix(factor(pred_arbol_clases), factor(datos_validacion$mora))
+print(confusion_matrix_arbol)
+```
+
+```{r}
+library(pROC)
+
+roc_arbol <- roc(datos_validacion$mora, pred_arbol)
+auc_arbol <- auc(roc_arbol)
+
+roc_logistico <- roc(datos_validacion$mora, predicciones_validacion)
+auc_logistico <- auc(roc_logistico)
+```
+
+```{r}
+plot(roc_logistico, col = "blue", main = "Curva ROC - Modelo Logístico vs. Árbol de Decisión")
+lines(roc_arbol, col = "red")
+legend("bottomright", legend = c(paste("Logístico (AUC =", round(auc_logistico, 2), ")"),
+                                paste("Árbol (AUC =", round(auc_arbol, 2), ")")),
+       col = c("blue", "red"), lty = 1, cex = 0.8)
+```
+
+```{r}
+data_roc_logistico <- data.frame(Specificity = 1 - roc_logistico$specificities,
+                                 Sensitivity = roc_logistico$sensitivities, Modelo = "Modelo Logístico")
+data_roc_arbol <- data.frame(Specificity = 1 - roc_arbol$specificities,
+                             Sensitivity = roc_arbol$sensitivities, Modelo = "Árbol de Decisión")
+
+data_roc <- rbind(data_roc_logistico, data_roc_arbol)
+
+#Punto óptimo en la curva ROC para cada modelo (máximo valor de la suma de sensibilidad y especificidad)
+punto_optimo_logistico <- roc_logistico$thresholds[which.max(roc_logistico$sensitivities + roc_logistico$specificities)]
+punto_optimo_arbol <- roc_arbol$thresholds[which.max(roc_arbol$sensitivities + roc_arbol$specificities)]
+```
+
+
+```{r}
+p <- ggplot(data_roc, aes(x = Specificity, y = Sensitivity)) +
+  geom_line(aes(color=Modelo), size=1) +
+  scale_color_manual(values=c("#ff7f0e","#1f77b4"))+
+  geom_point(data = data.frame(Specificity = 1 - roc_logistico$specificities[roc_logistico$thresholds == punto_optimo_logistico],
+                               Sensitivity = roc_logistico$sensitivities[roc_logistico$thresholds == punto_optimo_logistico], Modelo = "Modelo Logístico"),
+             size = 3, shape = 16, color = "#1f77b4") +
+  geom_point(data = data.frame(Specificity = 1 - roc_arbol$specificities[roc_arbol$thresholds == punto_optimo_arbol],
+                               Sensitivity = roc_arbol$sensitivities[roc_arbol$thresholds == punto_optimo_arbol], Modelo = "Árbol de Decisión"),
+             size = 3, shape = 16, color = "#ff7f0e") +
+  geom_text(aes(label = paste("AUC =", round(auc_logistico, 2))), x = 0.75, y = 0.25, color = "#1f77b4", hjust = 0, vjust = 0) +
+  geom_text(aes(label = paste("AUC =", round(auc_arbol, 2))), x = 0.75, y = 0.2, color = "#ff7f0e", hjust = 0, vjust = 0) +
+  annotate("text", x = 0.7, y = 0.15, label = paste("Punto Óptimo =", round(punto_optimo_logistico, 2)),
+           color = "#1f77b4", hjust = 0, vjust = 0) +
+  annotate("text", x = 0.7, y = 0.1, label = paste("Punto Óptimo =", round(punto_optimo_arbol, 2)),
+           color = "#ff7f0e", hjust = 0, vjust = 0) +
+  labs(x = "1 - Specificity", y = "Sensitivity", title = "Curva ROC - Modelo Logístico vs. Árbol de Decisión",
+       color = "Modelo") +
+  theme_minimal() +
+  theme(legend.position = "right")
+
+# Agregar línea diagonal en 0.5
+p <- p + geom_abline(slope = 1, intercept = 0, linetype = "dashed", color = "gray")
+
+# Ajustar límites del eje x e y para que la línea diagonal se extienda solo desde (0,0) hasta (1,1)
+p <- p + xlim(0, 1) + ylim(0, 1)
+
+print(p)
+```
